@@ -1,6 +1,19 @@
+# =============================================================================
+# My-Invest - Development Docker Compose
+# =============================================================================
+# Complete development stack including:
+# - Frontend React application with hot reload
+# - Backend API server with hot reload
+# - MongoDB database
+# - Redis cache
+# =============================================================================
+
 version: '3.8'
 
 services:
+  # ---------------------------------------------------------------------------
+  # Frontend Development Server
+  # ---------------------------------------------------------------------------
   frontend:
     build:
       context: ./frontend
@@ -20,7 +33,188 @@ services:
     restart: unless-stopped
     networks:
       - my-invest-network
+    depends_on:
+      backend:
+        condition: service_healthy
 
+  # ---------------------------------------------------------------------------
+  # Backend API Server
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: my-invest-backend-dev
+    ports:
+      - "8080:8080"
+    volumes:
+      # Mount source code for hot reload
+      - ./backend/src:/app/src:ro
+      - ./backend/Cargo.toml:/app/Cargo.toml:ro
+      - ./backend/Cargo.lock:/app/Cargo.lock:ro
+      # Cache cargo registry and build artifacts
+      - cargo-cache:/usr/local/cargo/registry
+      - cargo-target:/app/target
+    environment:
+      # Server
+      SERVER_HOST: "0.0.0.0"
+      SERVER_PORT: "8080"
+      ENVIRONMENT: "development"
+      RUST_LOG: "debug,my_invest_backend=debug,tower_http=debug"
+      RUST_BACKTRACE: "1"
+
+      # JWT
+      JWT_SECRET: "development-secret-key-do-not-use-in-production"
+      JWT_ACCESS_EXPIRATION: "3600"
+      JWT_REFRESH_EXPIRATION: "2592000"
+      JWT_ISSUER: "my-invest-api-dev"
+
+      # MongoDB
+      MONGODB_URI: "mongodb://mongodb:27017"
+      MONGODB_DATABASE: "my_invest_dev"
+      MONGODB_MIN_POOL_SIZE: "5"
+      MONGODB_MAX_POOL_SIZE: "10"
+
+      # Redis
+      REDIS_URL: "redis://redis:6379"
+      REDIS_CACHE_TTL: "300"
+      REDIS_HISTORY_CACHE_TTL: "3600"
+
+      # Alpha Vantage - Replace with your actual API key
+      ALPHA_VANTAGE_API_KEY: "${ALPHA_VANTAGE_API_KEY:-demo}"
+      ALPHA_VANTAGE_BASE_URL: "https://www.alphavantage.co/query"
+      ALPHA_VANTAGE_RATE_LIMIT: "5"
+      ALPHA_VANTAGE_DAILY_LIMIT: "500"
+
+      # Rate Limiting
+      RATE_LIMIT_REQUESTS: "100"
+      RATE_LIMIT_WINDOW: "60"
+
+      # CORS
+      ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:5173"
+
+      # App Settings
+      MAX_WATCHLISTS_PER_USER: "20"
+      MAX_ASSETS_PER_WATCHLIST: "50"
+      MIN_PASSWORD_LENGTH: "8"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - my-invest-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  # ---------------------------------------------------------------------------
+  # MongoDB Database
+  # ---------------------------------------------------------------------------
+  mongodb:
+    image: mongo:7.0
+    container_name: my-invest-mongodb-dev
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+      - mongodb-config:/data/configdb
+    environment:
+      # For development, we don't set authentication
+      # In production, use MONGO_INITDB_ROOT_USERNAME and MONGO_INITDB_ROOT_PASSWORD
+      MONGO_INITDB_DATABASE: my_invest_dev
+    networks:
+      - my-invest-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # Redis Cache
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7.2-alpine
+    container_name: my-invest-redis-dev
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - my-invest-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Redis Commander (Optional - Redis GUI)
+  # ---------------------------------------------------------------------------
+  # Uncomment to enable Redis web GUI at http://localhost:8081
+  # redis-commander:
+  #   image: rediscommander/redis-commander:latest
+  #   container_name: my-invest-redis-commander
+  #   ports:
+  #     - "8081:8081"
+  #   environment:
+  #     - REDIS_HOSTS=local:redis:6379
+  #   networks:
+  #     - my-invest-network
+  #   depends_on:
+  #     - redis
+
+  # ---------------------------------------------------------------------------
+  # Mongo Express (Optional - MongoDB GUI)
+  # ---------------------------------------------------------------------------
+  # Uncomment to enable MongoDB web GUI at http://localhost:8082
+  # mongo-express:
+  #   image: mongo-express:latest
+  #   container_name: my-invest-mongo-express
+  #   ports:
+  #     - "8082:8081"
+  #   environment:
+  #     - ME_CONFIG_MONGODB_SERVER=mongodb
+  #     - ME_CONFIG_BASICAUTH_USERNAME=admin
+  #     - ME_CONFIG_BASICAUTH_PASSWORD=admin
+  #   networks:
+  #     - my-invest-network
+  #   depends_on:
+  #     - mongodb
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  # MongoDB data persistence
+  mongodb-data:
+    driver: local
+  mongodb-config:
+    driver: local
+
+  # Redis data persistence
+  redis-data:
+    driver: local
+
+  # Cargo cache for faster builds
+  cargo-cache:
+    driver: local
+  cargo-target:
+    driver: local
+
+# =============================================================================
+# Networks
+# =============================================================================
 networks:
   my-invest-network:
     driver: bridge
