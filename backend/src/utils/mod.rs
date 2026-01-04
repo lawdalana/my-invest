@@ -1,15 +1,13 @@
-//! Utility modules for My-Invest Backend
+//! Utilities module - contains helper functions and common utilities
 //!
-//! This module contains common utilities used throughout the application:
-//! - Error handling
-//! - Logging configuration
-//! - Password hashing
-//! - JWT token management
+//! This module will be expanded to include:
+//! - Validation helpers (validation.rs)
+//! - Date/time utilities (datetime.rs)
+//! - Error types (errors.rs)
+//! - Response builders (responses.rs)
 
-pub mod error;
-pub mod jwt;
-pub mod logging;
-pub mod password;
-
-// Re-export commonly used types
-pub use error::{AppError, Result};
+// Future submodules will be added here:
+// pub mod validation;
+// pub mod datetime;
+// pub mod errors;
+// pub mod responses;

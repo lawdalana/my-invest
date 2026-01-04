@@ -1,16 +1,15 @@
-//! Data models for My-Invest Backend
+//! Models module - contains all data structures and domain models
 //!
-//! This module contains all domain models, DTOs (Data Transfer Objects),
-//! and database entity definitions.
+//! This module will be expanded to include:
+//! - User models (user.rs)
+//! - Asset models (asset.rs)
+//! - Watchlist models (watchlist.rs)
+//! - Alert models (alert.rs)
+//! - API response models (responses.rs)
 
-pub mod asset;
-pub mod user;
-pub mod watchlist;
-
-// Re-export commonly used types
-pub use asset::{Asset, AssetType, HistoricalDataPoint, PriceHistory, SearchResult};
-pub use user::{AuthResponse, LoginRequest, RegisterRequest, User, UserPreferences};
-pub use watchlist::{
-    AddAssetRequest, CreateWatchlistRequest, UpdateWatchlistRequest, Watchlist, WatchlistAsset,
-    WatchlistResponse,
-};
+// Future submodules will be added here:
+// pub mod user;
+// pub mod asset;
+// pub mod watchlist;
+// pub mod alert;
+// pub mod responses;
