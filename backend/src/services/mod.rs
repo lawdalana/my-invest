@@ -1,15 +1,15 @@
-//! Business logic services for My-Invest Backend
+//! Services module - contains business logic and external service integrations
 //!
-//! This module contains all service implementations that encapsulate
-//! the business logic of the application.
+//! This module will be expanded to include:
+//! - Authentication service (auth.rs)
+//! - Market data service (market_data.rs)
+//! - Alert processing service (alerts.rs)
+//! - Notification service (notifications.rs)
+//! - Cache service (cache.rs)
 
-pub mod alpha_vantage_client;
-pub mod asset_service;
-pub mod auth_service;
-pub mod watchlist_service;
-
-// Re-export service types
-pub use alpha_vantage_client::AlphaVantageClient;
-pub use asset_service::AssetService;
-pub use auth_service::AuthService;
-pub use watchlist_service::WatchlistService;
+// Future submodules will be added here:
+// pub mod auth;
+// pub mod market_data;
+// pub mod alerts;
+// pub mod notifications;
+// pub mod cache;

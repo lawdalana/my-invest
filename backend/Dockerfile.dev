@@ -1,10 +1,7 @@
-# =============================================================================
-# My-Invest Backend - Development Dockerfile
-# =============================================================================
-# Development image with hot reload support using cargo-watch
-# =============================================================================
+# Development Dockerfile for My-Invest Backend
+# Uses cargo-watch for hot reload during development
 
-FROM rust:1.75-bookworm
+FROM rust:latest
 
 # Install build dependencies and development tools
 RUN apt-get update && apt-get install -y \
@@ -13,30 +10,35 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install cargo-watch for hot reloading
+# Install cargo-watch for hot reload
 RUN cargo install cargo-watch
 
+# Set working directory
 WORKDIR /app
 
-# Copy Cargo files
-COPY Cargo.toml Cargo.lock* ./
+# Copy manifests first for dependency caching
+COPY Cargo.toml ./
 
-# Create a dummy main.rs to download dependencies
-RUN mkdir src && echo "fn main() {}" > src/main.rs
+# Create dummy source to build dependencies
+RUN mkdir -p src && \
+    echo 'fn main() { println!("Dummy"); }' > src/main.rs && \
+    cargo build && \
+    rm -rf src
 
-# Download dependencies (this layer will be cached)
-RUN cargo build && rm -rf src
+# Copy source code (will be overwritten by volume mount in dev)
+COPY . .
 
-# Expose the port
+# Expose the API port
 EXPOSE 8080
 
 # Set environment variables for development
-ENV RUST_LOG=debug,my_invest_backend=debug,tower_http=debug
+ENV HOST=0.0.0.0
+ENV PORT=8080
+ENV RUST_LOG=debug
 ENV RUST_BACKTRACE=1
-ENV ENVIRONMENT=development
 
-# Use cargo-watch for hot reloading
-# -x run: run the application
+# Run with cargo-watch for hot reload
+# -x run: execute "cargo run" on file changes
 # -w src: watch the src directory
-# --poll: use polling for file changes (better for Docker)
-CMD ["cargo", "watch", "-x", "run", "-w", "src", "--poll"]
+# -q: quiet mode (reduce noise)
+CMD ["cargo", "watch", "-x", "run", "-w", "src"]

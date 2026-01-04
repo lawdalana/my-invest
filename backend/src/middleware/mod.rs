@@ -1,15 +1,13 @@
-//! Middleware for My-Invest Backend
+//! Middleware module - contains custom Actix-web middleware
 //!
-//! This module contains all middleware implementations:
-//! - JWT authentication
-//! - Rate limiting
-//! - CORS configuration
+//! This module will be expanded to include:
+//! - Authentication middleware (auth.rs)
+//! - Rate limiting middleware (rate_limit.rs)
+//! - Request logging middleware (logging.rs)
+//! - Error handling middleware (error_handler.rs)
 
-pub mod auth;
-pub mod cors;
-pub mod rate_limit;
-
-// Re-export middleware types
-pub use auth::{AuthUser, RequireAuth};
-pub use cors::create_cors_layer;
-pub use rate_limit::RateLimiter;
+// Future submodules will be added here:
+// pub mod auth;
+// pub mod rate_limit;
+// pub mod logging;
+// pub mod error_handler;

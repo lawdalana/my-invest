@@ -1,13 +1,11 @@
-# =============================================================================
-# My-Invest Backend - Production Dockerfile
-# =============================================================================
-# Multi-stage build for optimized production image
-# =============================================================================
+# Multi-stage build for My-Invest Backend API
+# Stage 1: Builder - Compile the Rust application
+# Stage 2: Runtime - Minimal production image
 
-# -----------------------------------------------------------------------------
-# Stage 1: Build the application
-# -----------------------------------------------------------------------------
-FROM rust:1.75-bookworm AS builder
+# ============================================================================
+# Stage 1: Builder
+# ============================================================================
+FROM rust:latest AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -15,63 +13,64 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Create a new empty project
+# Create a new empty project for caching dependencies
 WORKDIR /app
 
-# Copy Cargo files first for dependency caching
-COPY Cargo.toml Cargo.lock* ./
+# Copy manifests
+COPY Cargo.toml ./
 
-# Create a dummy main.rs to build dependencies
-RUN mkdir src && echo "fn main() {}" > src/main.rs
+# Create dummy source file to build dependencies
+RUN mkdir -p src && \
+    echo 'fn main() { println!("Dummy"); }' > src/main.rs
 
 # Build dependencies only (this layer will be cached)
-RUN cargo build --release && rm -rf src
+RUN cargo build --release && \
+    rm -rf src target/release/deps/my_invest_backend*
 
-# Copy the actual source code
+# Copy actual source code
 COPY src ./src
 
-# Touch main.rs to ensure it's rebuilt
-RUN touch src/main.rs
+# Build the actual application
+RUN cargo build --release
 
-# Build the application
-RUN cargo build --release --bin my-invest-backend
-
-# -----------------------------------------------------------------------------
-# Stage 2: Create the runtime image
-# -----------------------------------------------------------------------------
+# ============================================================================
+# Stage 2: Runtime
+# ============================================================================
 FROM debian:bookworm-slim AS runtime
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create a non-root user
-RUN useradd -r -s /bin/false myinvest
+# Create non-root user for security
+RUN useradd -r -s /bin/false -u 1001 appuser
 
+# Set working directory
 WORKDIR /app
 
-# Copy the binary from the builder stage
+# Copy the binary from builder
 COPY --from=builder /app/target/release/my-invest-backend /app/my-invest-backend
 
-# Set ownership
-RUN chown -R myinvest:myinvest /app
+# Change ownership to non-root user
+RUN chown -R appuser:appuser /app
 
 # Switch to non-root user
-USER myinvest
+USER appuser
 
-# Expose the port
+# Expose the API port
 EXPOSE 8080
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
-
 # Set environment variables
-ENV SERVER_HOST=0.0.0.0
-ENV SERVER_PORT=8080
-ENV RUST_LOG=info,my_invest_backend=info
+ENV HOST=0.0.0.0
+ENV PORT=8080
+ENV RUST_LOG=info
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/api/health || exit 1
 
 # Run the application
-CMD ["/app/my-invest-backend"]
+CMD ["./my-invest-backend"]
