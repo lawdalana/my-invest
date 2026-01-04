@@ -2,15 +2,41 @@
 # My-Invest - Development Docker Compose
 # =============================================================================
 # Complete development stack including:
+# - Frontend React application with hot reload
 # - Backend API server with hot reload
 # - MongoDB database
 # - Redis cache
-# - Frontend (optional, can be run separately)
 # =============================================================================
 
 version: '3.8'
 
 services:
+  # ---------------------------------------------------------------------------
+  # Frontend Development Server
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: my-invest-frontend-dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_API_BASE_URL=http://localhost:8080/api
+      - VITE_WS_URL=ws://localhost:8080/ws
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    networks:
+      - my-invest-network
+    depends_on:
+      backend:
+        condition: service_healthy
+
   # ---------------------------------------------------------------------------
   # Backend API Server
   # ---------------------------------------------------------------------------
@@ -18,6 +44,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
+    container_name: my-invest-backend-dev
     ports:
       - "8080:8080"
     volumes:
@@ -90,6 +117,7 @@ services:
   # ---------------------------------------------------------------------------
   mongodb:
     image: mongo:7.0
+    container_name: my-invest-mongodb-dev
     ports:
       - "27017:27017"
     volumes:
@@ -114,6 +142,7 @@ services:
   # ---------------------------------------------------------------------------
   redis:
     image: redis:7.2-alpine
+    container_name: my-invest-redis-dev
     ports:
       - "6379:6379"
     volumes:
@@ -130,30 +159,12 @@ services:
       start_period: 10s
 
   # ---------------------------------------------------------------------------
-  # Frontend Development Server (Optional)
-  # ---------------------------------------------------------------------------
-  # Uncomment when frontend is ready
-  # frontend:
-  #   build:
-  #     context: ./frontend
-  #     dockerfile: Dockerfile.dev
-  #   ports:
-  #     - "3000:3000"
-  #   volumes:
-  #     - ./frontend/src:/app/src:ro
-  #     - ./frontend/public:/app/public:ro
-  #   environment:
-  #     - VITE_API_URL=http://localhost:8080
-  #   networks:
-  #     - my-invest-network
-  #   depends_on:
-  #     - backend
-
-  # ---------------------------------------------------------------------------
   # Redis Commander (Optional - Redis GUI)
   # ---------------------------------------------------------------------------
+  # Uncomment to enable Redis web GUI at http://localhost:8081
   # redis-commander:
   #   image: rediscommander/redis-commander:latest
+  #   container_name: my-invest-redis-commander
   #   ports:
   #     - "8081:8081"
   #   environment:
@@ -166,8 +177,10 @@ services:
   # ---------------------------------------------------------------------------
   # Mongo Express (Optional - MongoDB GUI)
   # ---------------------------------------------------------------------------
+  # Uncomment to enable MongoDB web GUI at http://localhost:8082
   # mongo-express:
   #   image: mongo-express:latest
+  #   container_name: my-invest-mongo-express
   #   ports:
   #     - "8082:8081"
   #   environment:

@@ -1,105 +1,104 @@
-# Frontend - React PWA
+# My-Invest Frontend MVP
 
-Progressive Web Application built with React and TypeScript.
+Progressive Web Application for tracking and analyzing stock market data.
 
-## Directory Structure
+## Quick Start with Docker
+
+### Development Mode
+
+```bash
+# Start development server with hot reload
+docker-compose -f docker-compose.dev.yml up
+
+# Access at http://localhost:3000
+```
+
+### Production Mode
+
+```bash
+# Build and run production build
+docker-compose up --build
+
+# Access at http://localhost:3000
+```
+
+### Stop Services
+
+```bash
+# Development
+docker-compose -f docker-compose.dev.yml down
+
+# Production
+docker-compose down
+```
+
+## Local Development (without Docker)
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+## Features
+
+✅ Authentication (mock with localStorage)
+✅ Dashboard with asset grid (Stocks, Crypto, ETFs, Bonds)
+✅ Asset detail with TradingView charts
+✅ Watchlist management
+✅ Settings (theme, notifications, profile)
+✅ Dark/Light theme toggle
+✅ Progressive Web App (PWA)
+✅ Fully responsive design
+
+## Tech Stack
+
+- React 18.2, TypeScript 5.3, Vite 5.0
+- Tailwind CSS 3.4, TradingView Charts 4.1
+- React Router 6.21, Lucide React
+- Vite PWA Plugin (Service Worker)
+
+## Build Stats
+
+- Total bundle: ~401 KiB (gzipped)
+- React vendor: 162 KiB
+- Chart vendor: 162 KiB
+- App code: 60 KiB
+- CSS: 24 KiB
+
+## Project Structure
 
 ```
 frontend/
 ├── src/
-│   ├── components/        # Reusable UI components
-│   │   ├── common/        # Common components (Button, Input, Card, etc.)
-│   │   ├── charts/        # TradingView chart components
-│   │   ├── assets/        # Asset-related components (AssetCard, AssetRow)
-│   │   ├── watchlist/     # Watchlist components
-│   │   ├── alerts/        # Alert components
-│   │   └── layout/        # Layout components (Navbar, Sidebar, Footer)
-│   ├── pages/             # Page components (routes)
-│   │   ├── auth/          # Login, Register, ResetPassword
-│   │   ├── dashboard/     # Main dashboard page
-│   │   ├── asset-detail/  # Asset detail page with charts
-│   │   ├── watchlists/    # Watchlist management
-│   │   ├── alerts/        # Alert management
-│   │   └── settings/      # User settings
-│   ├── services/          # API clients and external services
-│   │   ├── api/           # API client configuration
-│   │   ├── auth.service.ts
-│   │   ├── assets.service.ts
-│   │   ├── watchlist.service.ts
-│   │   ├── alerts.service.ts
-│   │   └── websocket.service.ts
-│   ├── hooks/             # Custom React hooks
-│   │   ├── useAuth.ts
-│   │   ├── useWebSocket.ts
-│   │   ├── useAssets.ts
-│   │   └── useAlerts.ts
-│   ├── contexts/          # React Context providers
-│   │   ├── AuthContext.tsx
-│   │   ├── ThemeContext.tsx
-│   │   └── NotificationContext.tsx
-│   ├── utils/             # Utility functions
-│   │   ├── formatters.ts  # Price, date formatters
-│   │   ├── validators.ts  # Form validation
-│   │   └── constants.ts   # App constants
-│   ├── types/             # TypeScript type definitions
-│   │   ├── api.types.ts
-│   │   ├── asset.types.ts
-│   │   ├── user.types.ts
-│   │   └── alert.types.ts
-│   ├── assets/            # Static assets
-│   │   ├── images/
-│   │   └── icons/
-│   ├── styles/            # Global styles and theme
-│   │   ├── globals.css
-│   │   └── theme.ts
-│   ├── App.tsx            # Main App component
-│   ├── main.tsx           # Entry point
-│   └── service-worker.ts  # PWA service worker
-├── public/                # Public static files
-│   ├── manifest.json      # PWA manifest
-│   ├── icons/             # PWA icons (various sizes)
-│   └── index.html
-├── tests/                 # Test files
-│   ├── unit/              # Unit tests (Jest + RTL)
-│   ├── integration/       # Integration tests
-│   └── e2e/               # End-to-end tests (Playwright/Cypress)
-├── .env.example           # Environment variables example
-├── .eslintrc.json         # ESLint configuration
-├── .prettierrc            # Prettier configuration
-├── tsconfig.json          # TypeScript configuration
-├── vite.config.ts         # Vite configuration
-├── package.json           # Dependencies and scripts
-└── Dockerfile             # Docker configuration
+│   ├── components/     # UI components
+│   ├── pages/          # Page components
+│   ├── contexts/       # React contexts
+│   ├── services/       # API services
+│   ├── types/          # TypeScript types
+│   ├── utils/          # Utilities
+│   └── styles/         # Global styles
+├── public/             # Static assets
+├── Dockerfile          # Production build
+├── Dockerfile.dev      # Development build
+└── nginx.conf          # Nginx config
 ```
 
-## Tech Stack
+## Demo Account
 
-- React 18+
-- TypeScript
-- TradingView Lightweight Charts
-- State Management: TBD (Redux Toolkit/Zustand/Context)
-- Styling: TBD (Tailwind CSS/Material-UI/styled-components)
-- Build Tool: Vite
-- PWA: Workbox
+Since this is a mock authentication system, you can use any email/password to:
+- Create a new account (Register)
+- Login with created credentials
 
-## Development Commands
+All data is stored in browser localStorage.
 
-```bash
-# Install dependencies
-npm install
+## Next Steps
 
-# Start development server
-npm run dev
+1. Add PWA icons to `/frontend/public/`
+2. Connect to real backend API (replace mock auth)
+3. Add unit/integration tests
+4. Set up CI/CD pipeline
 
-# Build for production
-npm run build
+## License
 
-# Run tests
-npm test
-
-# Run linting
-npm run lint
-
-# Type checking
-npm run type-check
-```
+[License type to be determined]

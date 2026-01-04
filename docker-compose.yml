@@ -1,0 +1,162 @@
+# =============================================================================
+# My-Invest - Production Docker Compose
+# =============================================================================
+# Full stack production deployment with:
+# - Frontend (React PWA served via Nginx)
+# - Backend API (Rust with Axum)
+# - MongoDB database
+# - Redis cache
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ---------------------------------------------------------------------------
+  # Frontend Production Server
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: my-invest-frontend
+    ports:
+      - "3000:80"
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    networks:
+      - my-invest-network
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Backend API Production Server
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: my-invest-backend
+    ports:
+      - "8080:8080"
+    environment:
+      # Server
+      SERVER_HOST: "0.0.0.0"
+      SERVER_PORT: "8080"
+      ENVIRONMENT: "production"
+      RUST_LOG: "info,my_invest_backend=info"
+
+      # JWT - Use secure secrets in production!
+      JWT_SECRET: "${JWT_SECRET}"
+      JWT_ACCESS_EXPIRATION: "3600"
+      JWT_REFRESH_EXPIRATION: "2592000"
+      JWT_ISSUER: "my-invest-api"
+
+      # MongoDB
+      MONGODB_URI: "${MONGODB_URI:-mongodb://mongodb:27017}"
+      MONGODB_DATABASE: "${MONGODB_DATABASE:-my_invest}"
+      MONGODB_MIN_POOL_SIZE: "10"
+      MONGODB_MAX_POOL_SIZE: "50"
+
+      # Redis
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379}"
+      REDIS_CACHE_TTL: "300"
+      REDIS_HISTORY_CACHE_TTL: "3600"
+
+      # Alpha Vantage - Use your production API key
+      ALPHA_VANTAGE_API_KEY: "${ALPHA_VANTAGE_API_KEY}"
+      ALPHA_VANTAGE_BASE_URL: "https://www.alphavantage.co/query"
+      ALPHA_VANTAGE_RATE_LIMIT: "5"
+      ALPHA_VANTAGE_DAILY_LIMIT: "500"
+
+      # Rate Limiting
+      RATE_LIMIT_REQUESTS: "100"
+      RATE_LIMIT_WINDOW: "60"
+
+      # CORS - Update with your production frontend domain
+      ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-http://localhost:3000}"
+
+      # App Settings
+      MAX_WATCHLISTS_PER_USER: "20"
+      MAX_ASSETS_PER_WATCHLIST: "50"
+      MIN_PASSWORD_LENGTH: "8"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - my-invest-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  # ---------------------------------------------------------------------------
+  # MongoDB Production Database
+  # ---------------------------------------------------------------------------
+  mongodb:
+    image: mongo:7.0
+    container_name: my-invest-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+      - mongodb-config:/data/configdb
+    environment:
+      # Production: Use authentication!
+      MONGO_INITDB_ROOT_USERNAME: "${MONGO_ROOT_USERNAME:-admin}"
+      MONGO_INITDB_ROOT_PASSWORD: "${MONGO_ROOT_PASSWORD}"
+      MONGO_INITDB_DATABASE: "${MONGODB_DATABASE:-my_invest}"
+    networks:
+      - my-invest-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # Redis Production Cache
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7.2-alpine
+    container_name: my-invest-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --requirepass "${REDIS_PASSWORD:-changeme}"
+    networks:
+      - my-invest-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  mongodb-data:
+    driver: local
+  mongodb-config:
+    driver: local
+  redis-data:
+    driver: local
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  my-invest-network:
+    driver: bridge
