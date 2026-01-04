@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: my-invest-frontend-dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_API_BASE_URL=http://localhost:8080/api
+      - VITE_WS_URL=ws://localhost:8080/ws
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    networks:
+      - my-invest-network
+
+networks:
+  my-invest-network:
+    driver: bridge
