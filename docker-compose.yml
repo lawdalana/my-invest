@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: my-invest-frontend
+    ports:
+      - "3000:80"
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    networks:
+      - my-invest-network
+
+networks:
+  my-invest-network:
+    driver: bridge
