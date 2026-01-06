@@ -1,13 +1,16 @@
-//! Utilities module - contains helper functions and common utilities
+//! Utilities module - contains helper functions and utilities
 //!
-//! This module will be expanded to include:
-//! - Validation helpers (validation.rs)
-//! - Date/time utilities (datetime.rs)
-//! - Error types (errors.rs)
-//! - Response builders (responses.rs)
+//! This module includes:
+//! - Error handling (error.rs)
+//! - JWT utilities (jwt.rs)
+//! - Password hashing (password.rs)
+//! - Logging configuration (logging.rs)
 
-// Future submodules will be added here:
-// pub mod validation;
-// pub mod datetime;
-// pub mod errors;
-// pub mod responses;
+pub mod error;
+pub mod jwt;
+pub mod logging;
+pub mod password;
+
+// Re-export commonly used types
+pub use error::{AppError, Result};
+pub use jwt::{extract_bearer_token, Claims, JwtManager, TokenPair, TokenType};

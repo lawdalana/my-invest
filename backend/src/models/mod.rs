@@ -1,15 +1,21 @@
 //! Models module - contains all data structures and domain models
 //!
-//! This module will be expanded to include:
+//! This module includes:
 //! - User models (user.rs)
 //! - Asset models (asset.rs)
 //! - Watchlist models (watchlist.rs)
 //! - Alert models (alert.rs)
-//! - API response models (responses.rs)
 
-// Future submodules will be added here:
-// pub mod user;
-// pub mod asset;
-// pub mod watchlist;
-// pub mod alert;
-// pub mod responses;
+pub mod alert;
+pub mod asset;
+pub mod user;
+pub mod watchlist;
+
+// Re-export commonly used types
+pub use alert::{
+    Alert, AlertCondition, AlertListResponse, AlertNotification, AlertResponse, AlertStatus,
+    AlertType, CreateAlertRequest, UpdateAlertRequest,
+};
+pub use asset::{Asset, AssetType, HistoricalDataPoint, PriceHistory, SearchResult, Timeframe};
+pub use user::{MessageResponse, User, UserResponse};
+pub use watchlist::{Watchlist, WatchlistAsset, WatchlistResponse};

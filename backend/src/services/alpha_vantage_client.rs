@@ -419,8 +419,7 @@ mod tests {
         let config = AlphaVantageConfig {
             api_key: "test-key".to_string(),
             base_url: "https://www.alphavantage.co/query".to_string(),
-            rate_limit: 5,
-            daily_limit: 500,
+            timeout_seconds: 30,
         };
 
         let client = AlphaVantageClient::new(&config);

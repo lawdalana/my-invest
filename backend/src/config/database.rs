@@ -152,6 +152,64 @@ impl MongoDb {
                 AppError::DatabaseError(format!("Failed to create token TTL index: {}", e))
             })?;
 
+        // Alerts collection indexes
+        let alerts_collection = self.database.collection::<mongodb::bson::Document>("alerts");
+
+        // User ID index for efficient filtering by user
+        let alert_user_id_index = IndexModel::builder()
+            .keys(doc! { "user_id": 1 })
+            .build();
+
+        alerts_collection
+            .create_index(alert_user_id_index, None)
+            .await
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to create alert user_id index: {}", e))
+            })?;
+
+        // Status index for finding active alerts
+        let alert_status_index = IndexModel::builder()
+            .keys(doc! { "status": 1 })
+            .build();
+
+        alerts_collection
+            .create_index(alert_status_index, None)
+            .await
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to create alert status index: {}", e))
+            })?;
+
+        // Compound index for symbol + status (for background processing)
+        let alert_symbol_status_index = IndexModel::builder()
+            .keys(doc! { "symbol": 1, "status": 1 })
+            .build();
+
+        alerts_collection
+            .create_index(alert_symbol_status_index, None)
+            .await
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to create alert symbol_status index: {}", e))
+            })?;
+
+        // Unique partial index to prevent duplicate alerts
+        // (same user, symbol, condition, and target_price for active alerts)
+        let alert_unique_index = IndexModel::builder()
+            .keys(doc! { "user_id": 1, "symbol": 1, "condition": 1, "target_price": 1 })
+            .options(
+                IndexOptions::builder()
+                    .unique(true)
+                    .partial_filter_expression(doc! { "status": "active" })
+                    .build(),
+            )
+            .build();
+
+        alerts_collection
+            .create_index(alert_unique_index, None)
+            .await
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to create alert unique index: {}", e))
+            })?;
+
         info!("MongoDB indexes created successfully");
 
         Ok(())

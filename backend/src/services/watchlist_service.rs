@@ -4,7 +4,7 @@
 //! user isolation and business logic validation.
 
 use futures::stream::TryStreamExt;
-use mongodb::bson::{doc, oid::ObjectId};
+use mongodb::bson::{doc, oid::ObjectId, DateTime as BsonDateTime};
 use mongodb::options::FindOptions;
 use mongodb::Collection;
 use tracing::{info, instrument, warn};
@@ -221,7 +221,7 @@ impl WatchlistService {
         let update = doc! {
             "$set": {
                 "name": &request.name,
-                "updated_at": chrono::Utc::now()
+                "updated_at": BsonDateTime::now()
             }
         };
 
@@ -347,7 +347,7 @@ impl WatchlistService {
                 "assets": asset_doc
             },
             "$set": {
-                "updated_at": chrono::Utc::now()
+                "updated_at": BsonDateTime::now()
             }
         };
 
@@ -422,7 +422,7 @@ impl WatchlistService {
                 }
             },
             "$set": {
-                "updated_at": chrono::Utc::now()
+                "updated_at": BsonDateTime::now()
             }
         };
 

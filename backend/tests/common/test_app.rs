@@ -18,7 +18,7 @@ use my_invest_backend::{
         AlphaVantageConfig, AppConfig, CorsConfig, JwtConfig, MongoDbConfig, RateLimitConfig,
         RedisConfig, ServerConfig, Config,
     },
-    services::{AlphaVantageClient, AssetService, AuthService, WatchlistService},
+    services::{AlertService, AlphaVantageClient, AssetService, AuthService, WatchlistService},
     utils::jwt::JwtManager,
 };
 
@@ -87,11 +87,14 @@ impl TestApp {
 
         let watchlist_service = WatchlistService::new(&mongodb, asset_service.clone(), &config.app);
 
+        let alert_service = AlertService::new(&mongodb, asset_service.clone(), config.app.max_alerts_per_user);
+
         // Create application state
         let app_state = AppState {
             auth_service,
             asset_service,
             watchlist_service,
+            alert_service,
             jwt_manager,
         };
 
@@ -164,6 +167,32 @@ impl TestApp {
             .add_header("Authorization".parse().unwrap(), format!("Bearer {}", access_token).parse().unwrap())
             .json(&serde_json::json!({
                 "name": name
+            }))
+            .await;
+
+        assert_eq!(response.status_code(), 201);
+
+        let body: serde_json::Value = response.json();
+        body["id"].as_str().unwrap().to_string()
+    }
+
+    /// Helper to create a test alert
+    pub async fn create_alert(
+        &self,
+        access_token: &str,
+        symbol: &str,
+        target_price: f64,
+        condition: &str,
+    ) -> String {
+        let response = self
+            .server
+            .post("/api/v1/alerts")
+            .add_header("Authorization".parse().unwrap(), format!("Bearer {}", access_token).parse().unwrap())
+            .json(&serde_json::json!({
+                "symbol": symbol,
+                "target_price": target_price,
+                "condition": condition,
+                "alert_type": "one_time"
             }))
             .await;
 
