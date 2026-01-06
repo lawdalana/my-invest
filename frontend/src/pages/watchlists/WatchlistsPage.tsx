@@ -4,86 +4,117 @@
  */
 
 import { useState } from 'react'
-import { Plus, Star, Trash2, Edit } from 'lucide-react'
-import { Navigation, Button, Card, Badge, Input } from '@/components'
-import { Watchlist } from '@/types'
+import { Plus, Star, Trash2, Edit, Check, X, Loader2 } from 'lucide-react'
+import { Navigation, Button, Card, Badge, Input, Skeleton } from '@/components'
 import { useNotification } from '@/contexts'
-
-// Mock data
-const MOCK_WATCHLISTS: Watchlist[] = [
-  {
-    id: '1',
-    userId: '1',
-    name: 'Tech Stocks',
-    description: 'My favorite technology companies',
-    isDefault: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    assets: [
-      {
-        symbol: 'AAPL',
-        name: 'Apple Inc.',
-        type: 'stock',
-        addedAt: new Date().toISOString(),
-      },
-      {
-        symbol: 'MSFT',
-        name: 'Microsoft Corporation',
-        type: 'stock',
-        addedAt: new Date().toISOString(),
-      },
-    ],
-  },
-  {
-    id: '2',
-    userId: '1',
-    name: 'Crypto Portfolio',
-    description: 'Cryptocurrency investments',
-    isDefault: false,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    assets: [
-      {
-        symbol: 'BTC',
-        name: 'Bitcoin',
-        type: 'crypto',
-        addedAt: new Date().toISOString(),
-      },
-    ],
-  },
-]
+import { useWatchlists } from '@/hooks'
 
 export function WatchlistsPage() {
   const { showToast } = useNotification()
-  const [watchlists, setWatchlists] = useState<Watchlist[]>(MOCK_WATCHLISTS)
+  const {
+    watchlists,
+    isLoading,
+    error,
+    createWatchlist,
+    updateWatchlist,
+    deleteWatchlist,
+    removeAsset,
+  } = useWatchlists()
+
   const [isCreating, setIsCreating] = useState(false)
   const [newWatchlistName, setNewWatchlistName] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingName, setEditingName] = useState('')
 
-  const handleCreateWatchlist = () => {
+  const handleCreateWatchlist = async () => {
     if (!newWatchlistName.trim()) {
       showToast('Please enter a watchlist name', 'error')
       return
     }
 
-    const newWatchlist: Watchlist = {
-      id: Date.now().toString(),
-      userId: '1',
-      name: newWatchlistName,
-      isDefault: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      assets: [],
-    }
+    setIsSubmitting(true)
+    const result = await createWatchlist(newWatchlistName)
+    setIsSubmitting(false)
 
-    setWatchlists([...watchlists, newWatchlist])
-    setNewWatchlistName('')
-    setIsCreating(false)
-    showToast('Watchlist created successfully', 'success')
+    if (result) {
+      setNewWatchlistName('')
+      setIsCreating(false)
+      showToast('Watchlist created successfully', 'success')
+    } else {
+      showToast('Failed to create watchlist', 'error')
+    }
   }
 
-  const handleDeleteWatchlist = (id: string) => {
-    setWatchlists(watchlists.filter((w) => w.id !== id))
-    showToast('Watchlist deleted', 'success')
+  const handleDeleteWatchlist = async (id: string) => {
+    const success = await deleteWatchlist(id)
+    if (success) {
+      showToast('Watchlist deleted', 'success')
+    } else {
+      showToast('Failed to delete watchlist', 'error')
+    }
+  }
+
+  const handleStartEdit = (id: string, name: string) => {
+    setEditingId(id)
+    setEditingName(name)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingId || !editingName.trim()) return
+
+    setIsSubmitting(true)
+    const result = await updateWatchlist(editingId, editingName)
+    setIsSubmitting(false)
+
+    if (result) {
+      showToast('Watchlist updated', 'success')
+      setEditingId(null)
+      setEditingName('')
+    } else {
+      showToast('Failed to update watchlist', 'error')
+    }
+  }
+
+  const handleCancelEdit = () => {
+    setEditingId(null)
+    setEditingName('')
+  }
+
+  const handleRemoveAsset = async (watchlistId: string, symbol: string) => {
+    const result = await removeAsset(watchlistId, symbol)
+    if (result) {
+      showToast('Asset removed', 'success')
+    } else {
+      showToast('Failed to remove asset', 'error')
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background-primary">
+        <Navigation />
+        <main className="pt-20 pb-8">
+          <div className="container-custom max-w-4xl">
+            <div className="mb-6">
+              <Skeleton variant="title" className="w-48 mb-2" />
+              <Skeleton variant="text" className="w-64" />
+            </div>
+            <div className="space-y-4">
+              {[1, 2, 3].map((i) => (
+                <Card key={i}>
+                  <Skeleton variant="title" className="w-32 mb-4" />
+                  <div className="space-y-2">
+                    <Skeleton variant="rect" className="h-14" />
+                    <Skeleton variant="rect" className="h-14" />
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </div>
+        </main>
+      </div>
+    )
   }
 
   return (
@@ -112,6 +143,13 @@ export function WatchlistsPage() {
             </Button>
           </div>
 
+          {/* Error message */}
+          {error && (
+            <div className="mb-6 p-4 bg-danger/10 border border-danger rounded-lg">
+              <p className="text-danger">{error}</p>
+            </div>
+          )}
+
           {/* Create Watchlist Form */}
           {isCreating && (
             <Card className="mb-6">
@@ -132,9 +170,18 @@ export function WatchlistsPage() {
                     }
                   }}
                   autoFocus
+                  disabled={isSubmitting}
                 />
-                <Button variant="primary" onClick={handleCreateWatchlist}>
-                  Create
+                <Button
+                  variant="primary"
+                  onClick={handleCreateWatchlist}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    'Create'
+                  )}
                 </Button>
                 <Button
                   variant="ghost"
@@ -142,6 +189,7 @@ export function WatchlistsPage() {
                     setIsCreating(false)
                     setNewWatchlistName('')
                   }}
+                  disabled={isSubmitting}
                 >
                   Cancel
                 </Button>
@@ -155,32 +203,68 @@ export function WatchlistsPage() {
               <Card key={watchlist.id}>
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="text-lg font-semibold text-text-primary">
-                        {watchlist.name}
-                      </h3>
-                      {watchlist.isDefault && (
-                        <Badge variant="info" size="sm">
-                          Default
-                        </Badge>
-                      )}
-                    </div>
-                    {watchlist.description && (
+                    {editingId === watchlist.id ? (
+                      <div className="flex items-center gap-2">
+                        <Input
+                          value={editingName}
+                          onChange={(e) => setEditingName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSaveEdit()
+                            if (e.key === 'Escape') handleCancelEdit()
+                          }}
+                          autoFocus
+                          disabled={isSubmitting}
+                          className="max-w-xs"
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleSaveEdit}
+                          disabled={isSubmitting}
+                        >
+                          {isSubmitting ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Check className="w-4 h-4 text-success" />
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleCancelEdit}
+                          disabled={isSubmitting}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="text-lg font-semibold text-text-primary">
+                          {watchlist.name}
+                        </h3>
+                        {watchlist.isDefault && (
+                          <Badge variant="info" size="sm">
+                            Default
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                    {watchlist.description && !editingId && (
                       <p className="text-sm text-text-secondary">
                         {watchlist.description}
                       </p>
                     )}
                   </div>
 
-                  <div className="flex gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => showToast('Edit coming soon', 'info')}
-                    >
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    {!watchlist.isDefault && (
+                  {editingId !== watchlist.id && (
+                    <div className="flex gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleStartEdit(watchlist.id, watchlist.name)}
+                      >
+                        <Edit className="w-4 h-4" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -188,8 +272,8 @@ export function WatchlistsPage() {
                       >
                         <Trash2 className="w-4 h-4 text-danger" />
                       </Button>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Assets in Watchlist */}
@@ -214,7 +298,7 @@ export function WatchlistsPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => showToast('Remove coming soon', 'info')}
+                          onClick={() => handleRemoveAsset(watchlist.id, asset.symbol)}
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>
@@ -227,14 +311,9 @@ export function WatchlistsPage() {
                     <p className="text-text-secondary">
                       No assets in this watchlist yet
                     </p>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="mt-2"
-                      onClick={() => showToast('Add asset coming soon', 'info')}
-                    >
-                      Add Asset
-                    </Button>
+                    <p className="text-text-tertiary text-sm mt-1">
+                      Search for assets and add them from the asset detail page
+                    </p>
                   </div>
                 )}
               </Card>

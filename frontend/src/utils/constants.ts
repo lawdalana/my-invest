@@ -74,46 +74,38 @@ export const LOCAL_STORAGE_KEYS = {
 
 /**
  * API Endpoints
+ * Note: All endpoints are prefixed with /v1 by the backend
  */
 export const API_ENDPOINTS = {
   // Authentication
-  LOGIN: '/auth/login',
-  REGISTER: '/auth/register',
-  LOGOUT: '/auth/logout',
-  REFRESH_TOKEN: '/auth/refresh',
-  VERIFY_TOKEN: '/auth/verify',
-  FORGOT_PASSWORD: '/auth/forgot-password',
-  RESET_PASSWORD: '/auth/reset-password',
-
-  // User
-  USER_PROFILE: '/user/profile',
-  UPDATE_PROFILE: '/user/profile',
-  UPDATE_PREFERENCES: '/user/preferences',
-  CHANGE_PASSWORD: '/user/change-password',
+  LOGIN: '/v1/auth/login',
+  REGISTER: '/v1/auth/register',
+  LOGOUT: '/v1/auth/logout',
+  REFRESH_TOKEN: '/v1/auth/refresh',
+  CURRENT_USER: '/v1/auth/me',
+  RESET_PASSWORD: '/v1/auth/reset-password',
+  RESET_PASSWORD_CONFIRM: '/v1/auth/reset-password/confirm',
 
   // Assets
-  ASSETS: '/assets',
-  ASSET_DETAILS: (symbol: string) => `/assets/${symbol}`,
-  ASSET_SEARCH: '/assets/search',
-  ASSET_CHART: (symbol: string, timeframe: string) =>
-    `/assets/${symbol}/chart/${timeframe}`,
-  TRENDING_ASSETS: '/assets/trending',
-  TOP_GAINERS: '/assets/top-gainers',
-  TOP_LOSERS: '/assets/top-losers',
+  ASSETS: '/v1/assets',
+  ASSET_DETAILS: (symbol: string) => `/v1/assets/${symbol}`,
+  ASSET_SEARCH: '/v1/assets/search',
+  ASSET_HISTORY: (symbol: string) => `/v1/assets/${symbol}/history`,
+  ASSET_REFRESH: (symbol: string) => `/v1/assets/${symbol}/refresh`,
 
   // Watchlists
-  WATCHLISTS: '/watchlists',
-  WATCHLIST_DETAILS: (id: string) => `/watchlists/${id}`,
-  ADD_TO_WATCHLIST: (id: string) => `/watchlists/${id}/assets`,
+  WATCHLISTS: '/v1/watchlists',
+  WATCHLIST_DETAILS: (id: string) => `/v1/watchlists/${id}`,
+  ADD_TO_WATCHLIST: (id: string) => `/v1/watchlists/${id}/assets`,
   REMOVE_FROM_WATCHLIST: (id: string, symbol: string) =>
-    `/watchlists/${id}/assets/${symbol}`,
+    `/v1/watchlists/${id}/assets/${symbol}`,
 
-  // Alerts
-  ALERTS: '/alerts',
-  ALERT_DETAILS: (id: string) => `/alerts/${id}`,
-  UPDATE_ALERT: (id: string) => `/alerts/${id}`,
-  DELETE_ALERT: (id: string) => `/alerts/${id}`,
-  ALERT_SUMMARY: '/alerts/summary',
+  // Alerts (future implementation)
+  ALERTS: '/v1/alerts',
+  ALERT_DETAILS: (id: string) => `/v1/alerts/${id}`,
+  UPDATE_ALERT: (id: string) => `/v1/alerts/${id}`,
+  DELETE_ALERT: (id: string) => `/v1/alerts/${id}`,
+  ALERT_SUMMARY: '/v1/alerts/summary',
 } as const
 
 /**

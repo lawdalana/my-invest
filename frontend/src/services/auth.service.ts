@@ -1,163 +1,104 @@
 /**
  * Authentication Service
- * Mock authentication service for MVP (uses localStorage)
- * In production, this will be replaced with real API calls
+ * Handles user authentication with the backend API
  */
 
+import apiClient from './api/client'
+import { API_ENDPOINTS, LOCAL_STORAGE_KEYS } from '@/utils'
 import {
+  mapAuthResponse,
+  mapUserResponse,
+  type BackendAuthResponse,
+  type BackendUserResponse,
+} from '@/utils/mappers'
+import type {
   User,
   LoginCredentials,
   RegisterData,
   AuthResponse,
 } from '@/types'
-import { LOCAL_STORAGE_KEYS } from '@/utils'
-
-// Mock user database (stored in localStorage)
-interface MockUser {
-  id: string
-  email: string
-  password: string // In real app, this would be hashed server-side
-  username?: string
-  firstName?: string
-  lastName?: string
-  createdAt: string
-}
 
 /**
- * Get mock users from localStorage
+ * Login user with email and password
  */
-function getMockUsers(): MockUser[] {
-  const users = localStorage.getItem(LOCAL_STORAGE_KEYS.MOCK_USERS)
-  return users ? JSON.parse(users) : []
-}
+export async function login(credentials: LoginCredentials): Promise<AuthResponse> {
+  const response = await apiClient.post<BackendAuthResponse>(API_ENDPOINTS.LOGIN, {
+    email: credentials.email,
+    password: credentials.password,
+  })
 
-/**
- * Save mock users to localStorage
- */
-function saveMockUsers(users: MockUser[]): void {
-  localStorage.setItem(LOCAL_STORAGE_KEYS.MOCK_USERS, JSON.stringify(users))
-}
+  const authData = mapAuthResponse(response.data)
 
-/**
- * Generate a mock JWT token
- */
-function generateMockToken(userId: string): string {
-  // In production, this would be a real JWT from the backend
-  return btoa(JSON.stringify({ userId, exp: Date.now() + 24 * 60 * 60 * 1000 }))
-}
-
-/**
- * Convert MockUser to User
- */
-function mockUserToUser(mockUser: MockUser): User {
-  return {
-    id: mockUser.id,
-    email: mockUser.email,
-    username: mockUser.username,
-    firstName: mockUser.firstName,
-    lastName: mockUser.lastName,
-    createdAt: mockUser.createdAt,
-    preferences: {
-      theme: 'dark',
-      defaultTimeframe: '1D',
-      defaultAssetType: 'all',
-      emailNotifications: true,
-      pushNotifications: false,
-      priceAlerts: true,
-      patternAlerts: true,
-      currency: 'USD',
-      language: 'en',
-    },
+  // Store tokens and user data
+  localStorage.setItem(LOCAL_STORAGE_KEYS.AUTH_TOKEN, authData.token)
+  if (authData.refreshToken) {
+    localStorage.setItem(LOCAL_STORAGE_KEYS.REFRESH_TOKEN, authData.refreshToken)
   }
-}
+  localStorage.setItem(LOCAL_STORAGE_KEYS.USER_DATA, JSON.stringify(authData.user))
 
-/**
- * Login user
- */
-export async function login(
-  credentials: LoginCredentials
-): Promise<AuthResponse> {
-  // Simulate API delay
-  await new Promise((resolve) => setTimeout(resolve, 500))
-
-  const users = getMockUsers()
-  const user = users.find((u) => u.email === credentials.email)
-
-  if (!user || user.password !== credentials.password) {
-    throw new Error('Invalid email or password')
-  }
-
-  const token = generateMockToken(user.id)
-  const userData = mockUserToUser(user)
-
-  // Store token and user data
-  localStorage.setItem(LOCAL_STORAGE_KEYS.AUTH_TOKEN, token)
-  localStorage.setItem(LOCAL_STORAGE_KEYS.USER_DATA, JSON.stringify(userData))
-
-  if (credentials.rememberMe) {
-    localStorage.setItem(LOCAL_STORAGE_KEYS.REFRESH_TOKEN, token)
-  }
-
-  return {
-    user: userData,
-    token,
-    expiresIn: 86400, // 24 hours
-  }
+  return authData
 }
 
 /**
  * Register new user
  */
 export async function register(data: RegisterData): Promise<AuthResponse> {
-  // Simulate API delay
-  await new Promise((resolve) => setTimeout(resolve, 500))
-
-  const users = getMockUsers()
-
-  // Check if user already exists
-  if (users.some((u) => u.email === data.email)) {
-    throw new Error('User with this email already exists')
-  }
-
-  // Check if passwords match
-  if (data.password !== data.confirmPassword) {
-    throw new Error('Passwords do not match')
-  }
-
-  // Create new user
-  const newUser: MockUser = {
-    id: Date.now().toString(),
+  const response = await apiClient.post<BackendAuthResponse>(API_ENDPOINTS.REGISTER, {
     email: data.email,
     password: data.password,
-    username: data.username,
-    firstName: data.firstName,
-    lastName: data.lastName,
-    createdAt: new Date().toISOString(),
-  }
-
-  // Save user
-  users.push(newUser)
-  saveMockUsers(users)
-
-  // Auto-login after registration
-  return login({
-    email: data.email,
-    password: data.password,
-    rememberMe: true,
+    password_confirm: data.confirmPassword, // Backend expects password_confirm
   })
+
+  const authData = mapAuthResponse(response.data)
+
+  // Store tokens and user data
+  localStorage.setItem(LOCAL_STORAGE_KEYS.AUTH_TOKEN, authData.token)
+  if (authData.refreshToken) {
+    localStorage.setItem(LOCAL_STORAGE_KEYS.REFRESH_TOKEN, authData.refreshToken)
+  }
+  localStorage.setItem(LOCAL_STORAGE_KEYS.USER_DATA, JSON.stringify(authData.user))
+
+  return authData
 }
 
 /**
  * Logout user
  */
-export function logout(): void {
-  localStorage.removeItem(LOCAL_STORAGE_KEYS.AUTH_TOKEN)
-  localStorage.removeItem(LOCAL_STORAGE_KEYS.REFRESH_TOKEN)
-  localStorage.removeItem(LOCAL_STORAGE_KEYS.USER_DATA)
+export async function logout(): Promise<void> {
+  const refreshTokenValue = localStorage.getItem(LOCAL_STORAGE_KEYS.REFRESH_TOKEN)
+
+  try {
+    // Try to invalidate refresh token on server
+    if (refreshTokenValue) {
+      await apiClient.post(API_ENDPOINTS.LOGOUT, {
+        refresh_token: refreshTokenValue,
+      })
+    }
+  } catch (error) {
+    // Ignore logout errors - we'll clear local storage anyway
+    console.warn('Logout request failed:', error)
+  } finally {
+    // Always clear local storage
+    clearAuthStorage()
+  }
 }
 
 /**
- * Get current user from localStorage
+ * Get current user from backend API
+ */
+export async function fetchCurrentUser(): Promise<User> {
+  const response = await apiClient.get<BackendUserResponse>(API_ENDPOINTS.CURRENT_USER)
+  const user = mapUserResponse(response.data)
+
+  // Update stored user data
+  localStorage.setItem(LOCAL_STORAGE_KEYS.USER_DATA, JSON.stringify(user))
+
+  return user
+}
+
+/**
+ * Get current user from localStorage (without API call)
+ * Kept for backwards compatibility with existing code
  */
 export function getCurrentUser(): User | null {
   const userData = localStorage.getItem(LOCAL_STORAGE_KEYS.USER_DATA)
@@ -165,44 +106,75 @@ export function getCurrentUser(): User | null {
 }
 
 /**
- * Check if user is authenticated
+ * Check if user is authenticated (has token in localStorage)
  */
 export function isAuthenticated(): boolean {
   const token = localStorage.getItem(LOCAL_STORAGE_KEYS.AUTH_TOKEN)
-  const user = getCurrentUser()
-  return !!(token && user)
+  return !!token
 }
 
 /**
- * Verify token validity
- * In production, this would make an API call to verify the token
+ * Verify token by fetching current user from API
+ * Returns true if token is valid, false otherwise
  */
 export async function verifyToken(): Promise<boolean> {
-  await new Promise((resolve) => setTimeout(resolve, 100))
-
-  const token = localStorage.getItem(LOCAL_STORAGE_KEYS.AUTH_TOKEN)
-  if (!token) return false
+  if (!isAuthenticated()) {
+    return false
+  }
 
   try {
-    const decoded = JSON.parse(atob(token))
-    return decoded.exp > Date.now()
+    await fetchCurrentUser()
+    return true
   } catch {
     return false
   }
 }
 
 /**
- * Refresh token
- * In production, this would make an API call to get a new token
+ * Refresh access token using refresh token
  */
 export async function refreshToken(): Promise<string> {
-  await new Promise((resolve) => setTimeout(resolve, 100))
+  const currentRefreshToken = localStorage.getItem(LOCAL_STORAGE_KEYS.REFRESH_TOKEN)
 
-  const user = getCurrentUser()
-  if (!user) throw new Error('No user found')
+  if (!currentRefreshToken) {
+    throw new Error('No refresh token available')
+  }
 
-  const newToken = generateMockToken(user.id)
-  localStorage.setItem(LOCAL_STORAGE_KEYS.AUTH_TOKEN, newToken)
+  const response = await apiClient.post<BackendAuthResponse>(API_ENDPOINTS.REFRESH_TOKEN, {
+    refresh_token: currentRefreshToken,
+  })
 
-  return newToken
+  const authData = mapAuthResponse(response.data)
+
+  // Update stored tokens
+  localStorage.setItem(LOCAL_STORAGE_KEYS.AUTH_TOKEN, authData.token)
+  if (authData.refreshToken) {
+    localStorage.setItem(LOCAL_STORAGE_KEYS.REFRESH_TOKEN, authData.refreshToken)
+  }
+  localStorage.setItem(LOCAL_STORAGE_KEYS.USER_DATA, JSON.stringify(authData.user))
+
+  return authData.token
+}
+
+/**
+ * Get stored auth token
+ */
+export function getAuthToken(): string | null {
+  return localStorage.getItem(LOCAL_STORAGE_KEYS.AUTH_TOKEN)
+}
+
+/**
+ * Get stored refresh token
+ */
+export function getRefreshToken(): string | null {
+  return localStorage.getItem(LOCAL_STORAGE_KEYS.REFRESH_TOKEN)
+}
+
+/**
+ * Clear all auth data from localStorage
+ */
+export function clearAuthStorage(): void {
+  localStorage.removeItem(LOCAL_STORAGE_KEYS.AUTH_TOKEN)
+  localStorage.removeItem(LOCAL_STORAGE_KEYS.REFRESH_TOKEN)
+  localStorage.removeItem(LOCAL_STORAGE_KEYS.USER_DATA)
 }

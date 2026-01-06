@@ -3,79 +3,71 @@
  * Detailed asset view with chart and stats
  */
 
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Star, Bell } from 'lucide-react'
 import { Navigation, ChartContainer, Button, Badge, SkeletonChart } from '@/components'
-import { Asset, ChartDataPoint, Timeframe } from '@/types'
+import { Watchlist } from '@/types'
 import { formatCurrency, formatLargeNumber, formatDateTime, ASSET_TYPE_LABELS } from '@/utils'
 import { useNotification } from '@/contexts'
-
-// Mock data
-const MOCK_ASSET: Asset = {
-  id: '1',
-  symbol: 'AAPL',
-  name: 'Apple Inc.',
-  type: 'stock',
-  price: 178.25,
-  change24h: 2.34,
-  changePercent24h: 2.34,
-  volume24h: 52840000,
-  marketCap: 2890000000000,
-  high24h: 180.50,
-  low24h: 175.20,
-  open24h: 176.00,
-  lastUpdated: new Date().toISOString(),
-}
-
-const MOCK_CHART_DATA: ChartDataPoint[] = [
-  { time: 1704067200, open: 176, high: 178, low: 175, close: 177 },
-  { time: 1704153600, open: 177, high: 179, low: 176.5, close: 178.5 },
-  { time: 1704240000, open: 178.5, high: 180, low: 177, close: 178.25 },
-]
+import { useAsset, useWatchlists } from '@/hooks'
 
 export function AssetDetailPage() {
   const { symbol } = useParams<{ symbol: string }>()
   const navigate = useNavigate()
   const { showToast } = useNotification()
 
-  const [asset, setAsset] = useState<Asset | null>(null)
-  const [chartData, setChartData] = useState<ChartDataPoint[]>([])
-  const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('1D')
-  const [isLoading, setIsLoading] = useState(true)
+  const { asset, chartData, isLoading, error, timeframe, setTimeframe } = useAsset(symbol)
+  const { watchlists, addAsset } = useWatchlists()
 
-  // Load asset data
-  useEffect(() => {
-    const loadAsset = async () => {
-      setIsLoading(true)
+  const [showWatchlistModal, setShowWatchlistModal] = useState(false)
+  const [selectedWatchlist, setSelectedWatchlist] = useState<string>('')
 
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-
-      setAsset(MOCK_ASSET)
-      setChartData(MOCK_CHART_DATA)
-      setIsLoading(false)
-    }
-
-    loadAsset()
-  }, [symbol])
-
-  const handleTimeframeChange = async (timeframe: Timeframe) => {
-    setSelectedTimeframe(timeframe)
-
-    // Simulate loading new chart data
-    setIsLoading(true)
-    await new Promise((resolve) => setTimeout(resolve, 500))
-    setChartData(MOCK_CHART_DATA)
-    setIsLoading(false)
+  const handleTimeframeChange = (newTimeframe: typeof timeframe) => {
+    setTimeframe(newTimeframe)
   }
 
   const handleAddToWatchlist = () => {
-    showToast('Added to watchlist', 'success')
+    if (watchlists.length === 0) {
+      showToast('Please create a watchlist first', 'info')
+      return
+    }
+    setShowWatchlistModal(true)
+  }
+
+  const handleConfirmAddToWatchlist = async () => {
+    if (!selectedWatchlist || !symbol) return
+
+    const result = await addAsset(selectedWatchlist, symbol)
+    if (result) {
+      showToast('Added to watchlist', 'success')
+    } else {
+      showToast('Failed to add to watchlist', 'error')
+    }
+    setShowWatchlistModal(false)
+    setSelectedWatchlist('')
   }
 
   const handleCreateAlert = () => {
     showToast('Alert creation coming soon', 'info')
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background-primary">
+        <Navigation />
+        <main className="pt-20 pb-8">
+          <div className="container-custom">
+            <div className="text-center py-12">
+              <p className="text-danger text-lg mb-4">{error}</p>
+              <Button onClick={() => navigate('/')} variant="primary">
+                Go to Dashboard
+              </Button>
+            </div>
+          </div>
+        </main>
+      </div>
+    )
   }
 
   if (!asset && !isLoading) {
@@ -121,7 +113,7 @@ export function AssetDetailPage() {
                 <ChartContainer
                   asset={asset}
                   chartData={chartData}
-                  selectedTimeframe={selectedTimeframe}
+                  selectedTimeframe={timeframe}
                   onTimeframeChange={handleTimeframeChange}
                   isLoading={isLoading}
                 />
@@ -206,6 +198,49 @@ export function AssetDetailPage() {
           )}
         </div>
       </main>
+
+      {/* Add to Watchlist Modal */}
+      {showWatchlistModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-background-secondary border border-border-primary rounded-lg p-6 w-full max-w-md mx-4">
+            <h3 className="text-lg font-semibold text-text-primary mb-4">
+              Add to Watchlist
+            </h3>
+
+            <select
+              value={selectedWatchlist}
+              onChange={(e) => setSelectedWatchlist(e.target.value)}
+              className="w-full bg-background-tertiary border border-border-primary rounded px-3 py-2 text-text-primary mb-4"
+            >
+              <option value="">Select a watchlist</option>
+              {watchlists.map((watchlist: Watchlist) => (
+                <option key={watchlist.id} value={watchlist.id}>
+                  {watchlist.name}
+                </option>
+              ))}
+            </select>
+
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setShowWatchlistModal(false)
+                  setSelectedWatchlist('')
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleConfirmAddToWatchlist}
+                disabled={!selectedWatchlist}
+              >
+                Add
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
