@@ -3,20 +3,21 @@
  * Manages user authentication state and provides auth functions
  */
 
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import type {
   LoginCredentials,
   RegisterData,
   AuthResponse,
   AuthState,
 } from '@/types'
+import { LOCAL_STORAGE_KEYS } from '@/utils'
 import * as authService from '@/services/auth.service'
 
 interface AuthContextValue extends AuthState {
   login: (credentials: LoginCredentials) => Promise<void>
   register: (data: RegisterData) => Promise<void>
-  logout: () => void
-  refreshUser: () => void
+  logout: () => Promise<void>
+  refreshUser: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -37,12 +38,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Check authentication on mount
   useEffect(() => {
     const checkAuth = async () => {
+      const token = localStorage.getItem(LOCAL_STORAGE_KEYS.AUTH_TOKEN)
+
+      // No token - not authenticated
+      if (!token) {
+        setState({
+          user: null,
+          token: null,
+          isAuthenticated: false,
+          isLoading: false,
+          error: null,
+        })
+        return
+      }
+
       try {
+        // Try to verify token by fetching current user from API
         const isValid = await authService.verifyToken()
 
         if (isValid) {
           const user = authService.getCurrentUser()
-          const token = localStorage.getItem('my-invest-auth-token')
 
           setState({
             user,
@@ -52,6 +67,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
             error: null,
           })
         } else {
+          // Token invalid - try to refresh
+          await tryRefreshToken()
+        }
+      } catch (error) {
+        // Verification failed - try refresh token
+        try {
+          await tryRefreshToken()
+        } catch {
+          // Refresh also failed - clear auth state
+          authService.clearAuthStorage()
           setState({
             user: null,
             token: null,
@@ -60,13 +85,30 @@ export function AuthProvider({ children }: AuthProviderProps) {
             error: null,
           })
         }
-      } catch (error) {
+      }
+    }
+
+    const tryRefreshToken = async () => {
+      try {
+        const newToken = await authService.refreshToken()
+        const user = authService.getCurrentUser()
+
+        setState({
+          user,
+          token: newToken,
+          isAuthenticated: true,
+          isLoading: false,
+          error: null,
+        })
+      } catch {
+        // Refresh failed - clear auth state
+        authService.clearAuthStorage()
         setState({
           user: null,
           token: null,
           isAuthenticated: false,
           isLoading: false,
-          error: error instanceof Error ? error.message : 'Auth check failed',
+          error: null,
         })
       }
     }
@@ -74,7 +116,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     checkAuth()
   }, [])
 
-  const login = async (credentials: LoginCredentials) => {
+  const login = useCallback(async (credentials: LoginCredentials) => {
     try {
       setState((prev) => ({ ...prev, isLoading: true, error: null }))
 
@@ -101,9 +143,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       throw error
     }
-  }
+  }, [])
 
-  const register = async (data: RegisterData) => {
+  const register = useCallback(async (data: RegisterData) => {
     try {
       setState((prev) => ({ ...prev, isLoading: true, error: null }))
 
@@ -130,23 +172,30 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       throw error
     }
-  }
+  }, [])
 
-  const logout = () => {
-    authService.logout()
-    setState({
-      user: null,
-      token: null,
-      isAuthenticated: false,
-      isLoading: false,
-      error: null,
-    })
-  }
+  const logout = useCallback(async () => {
+    try {
+      await authService.logout()
+    } finally {
+      setState({
+        user: null,
+        token: null,
+        isAuthenticated: false,
+        isLoading: false,
+        error: null,
+      })
+    }
+  }, [])
 
-  const refreshUser = () => {
-    const user = authService.getCurrentUser()
-    setState((prev) => ({ ...prev, user }))
-  }
+  const refreshUser = useCallback(async () => {
+    try {
+      const user = await authService.fetchCurrentUser()
+      setState((prev) => ({ ...prev, user }))
+    } catch (error) {
+      console.error('Failed to refresh user:', error)
+    }
+  }, [])
 
   const value: AuthContextValue = {
     ...state,

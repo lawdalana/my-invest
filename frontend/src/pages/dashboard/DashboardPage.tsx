@@ -3,71 +3,73 @@
  * Main dashboard with asset grid and filters
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Navigation, AssetCard, SkeletonAssetCard } from '@/components'
-import { Asset, AssetType } from '@/types'
+import { Asset, AssetType, AssetSearchResult } from '@/types'
 import { ASSET_TYPE_LABELS, ASSET_TYPES } from '@/utils'
-
-// Mock data for development
-const MOCK_ASSETS: Asset[] = [
-  {
-    id: '1',
-    symbol: 'AAPL',
-    name: 'Apple Inc.',
-    type: 'stock',
-    price: 178.25,
-    change24h: 2.34,
-    changePercent24h: 2.34,
-    volume24h: 52840000,
-    marketCap: 2890000000000,
-    lastUpdated: new Date().toISOString(),
-  },
-  {
-    id: '2',
-    symbol: 'BTC',
-    name: 'Bitcoin',
-    type: 'crypto',
-    price: 43250.50,
-    change24h: -1.25,
-    changePercent24h: -1.25,
-    volume24h: 28500000000,
-    marketCap: 845000000000,
-    lastUpdated: new Date().toISOString(),
-  },
-  {
-    id: '3',
-    symbol: 'SPY',
-    name: 'SPDR S&P 500 ETF',
-    type: 'etf',
-    price: 468.32,
-    change24h: 0.87,
-    changePercent24h: 0.87,
-    volume24h: 75200000,
-    marketCap: 425000000000,
-    lastUpdated: new Date().toISOString(),
-  },
-]
+import { useWatchlists } from '@/hooks'
+import * as assetService from '@/services/asset.service'
+import { getErrorMessage } from '@/services/api/client'
+import { useNotification } from '@/contexts/NotificationContext'
 
 export function DashboardPage() {
   const [assets, setAssets] = useState<Asset[]>([])
   const [filteredAssets, setFilteredAssets] = useState<Asset[]>([])
   const [selectedType, setSelectedType] = useState<AssetType | 'all'>('all')
   const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  // Load assets
+  const { watchlists, isLoading: watchlistsLoading } = useWatchlists()
+  const { showToast } = useNotification()
+
+  // Load assets from watchlists
   useEffect(() => {
     const loadAssets = async () => {
+      // Wait for watchlists to load
+      if (watchlistsLoading) return
+
       setIsLoading(true)
+      setError(null)
 
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      try {
+        // Collect all unique symbols from all watchlists
+        const allSymbols = new Set<string>()
+        watchlists.forEach((watchlist) => {
+          watchlist.assets.forEach((asset) => {
+            allSymbols.add(asset.symbol)
+          })
+        })
 
-      setAssets(MOCK_ASSETS)
-      setIsLoading(false)
+        if (allSymbols.size === 0) {
+          // No assets in watchlists
+          setAssets([])
+          setIsLoading(false)
+          return
+        }
+
+        // Fetch details for all symbols
+        const assetPromises = Array.from(allSymbols).map((symbol) =>
+          assetService.getAsset(symbol).catch((err) => {
+            console.warn(`Failed to fetch asset ${symbol}:`, err)
+            return null
+          })
+        )
+
+        const results = await Promise.all(assetPromises)
+        const validAssets = results.filter((asset): asset is Asset => asset !== null)
+
+        setAssets(validAssets)
+      } catch (err) {
+        const errorMessage = getErrorMessage(err)
+        setError(errorMessage)
+        showToast('Failed to load assets', 'error')
+      } finally {
+        setIsLoading(false)
+      }
     }
 
     loadAssets()
-  }, [])
+  }, [watchlists, watchlistsLoading, showToast])
 
   // Filter assets by type
   useEffect(() => {
@@ -78,9 +80,25 @@ export function DashboardPage() {
     }
   }, [assets, selectedType])
 
+  // Handle search
+  const handleSearch = useCallback(
+    async (query: string): Promise<AssetSearchResult[]> => {
+      try {
+        return await assetService.searchAssets(query)
+      } catch (err) {
+        console.error('Search failed:', err)
+        showToast('Search failed', 'error')
+        return []
+      }
+    },
+    [showToast]
+  )
+
+  const showLoading = isLoading || watchlistsLoading
+
   return (
     <div className="min-h-screen bg-background-primary">
-      <Navigation />
+      <Navigation onSearch={handleSearch} />
 
       <main className="pt-20 pb-8">
         <div className="container-custom">
@@ -93,6 +111,13 @@ export function DashboardPage() {
               Track your favorite assets in real-time
             </p>
           </div>
+
+          {/* Error message */}
+          {error && (
+            <div className="mb-6 p-4 bg-danger/10 border border-danger rounded-lg">
+              <p className="text-danger">{error}</p>
+            </div>
+          )}
 
           {/* Filters */}
           <div className="flex gap-2 mb-6 overflow-x-auto no-scrollbar">
@@ -122,7 +147,7 @@ export function DashboardPage() {
           </div>
 
           {/* Asset Grid */}
-          {isLoading ? (
+          {showLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {[1, 2, 3, 4, 5, 6].map((i) => (
                 <SkeletonAssetCard key={i} />
@@ -133,6 +158,15 @@ export function DashboardPage() {
               {filteredAssets.map((asset) => (
                 <AssetCard key={asset.id} asset={asset} />
               ))}
+            </div>
+          ) : assets.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-text-secondary text-lg mb-4">
+                No assets in your watchlists yet
+              </p>
+              <p className="text-text-tertiary">
+                Search for assets using the search bar above and add them to a watchlist
+              </p>
             </div>
           ) : (
             <div className="text-center py-12">
