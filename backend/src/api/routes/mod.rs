@@ -3,7 +3,7 @@
 //! This module defines all API routes and builds the main router.
 
 use axum::{
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
     Router,
 };
 use std::sync::Arc;
@@ -18,11 +18,13 @@ use crate::api::handlers::{
     // Watchlist handlers
     add_asset_to_watchlist, create_watchlist, delete_watchlist, get_watchlist, list_watchlists,
     remove_asset_from_watchlist, update_watchlist,
+    // Alert handlers
+    create_alert, delete_alert, get_alert, list_alerts, toggle_alert, update_alert,
 };
-use crate::middleware::{create_cors_layer, RateLimiter};
-use crate::services::{AssetService, AuthService, WatchlistService};
-use crate::utils::jwt::JwtManager;
 use crate::config::Config;
+use crate::middleware::{create_cors_layer, RateLimiter};
+use crate::services::{AlertService, AssetService, AuthService, WatchlistService};
+use crate::utils::jwt::JwtManager;
 
 /// Application state shared across all handlers
 #[derive(Clone)]
@@ -30,6 +32,7 @@ pub struct AppState {
     pub auth_service: AuthService,
     pub asset_service: AssetService,
     pub watchlist_service: WatchlistService,
+    pub alert_service: AlertService,
     pub jwt_manager: Arc<JwtManager>,
 }
 
@@ -78,11 +81,22 @@ pub fn build_router(state: AppState, config: &Config) -> Router {
         .route("/:id/assets/:symbol", delete(remove_asset_from_watchlist))
         .with_state(state.watchlist_service.clone());
 
+    // Build alert routes (protected)
+    let alert_routes = Router::new()
+        .route("/", get(list_alerts))
+        .route("/", post(create_alert))
+        .route("/:id", get(get_alert))
+        .route("/:id", put(update_alert))
+        .route("/:id", delete(delete_alert))
+        .route("/:id/toggle", patch(toggle_alert))
+        .with_state(state.alert_service.clone());
+
     // Combine all routes under /api/v1
     let api_routes = Router::new()
         .nest("/auth", auth_routes)
         .nest("/assets", asset_routes)
-        .nest("/watchlists", watchlist_routes);
+        .nest("/watchlists", watchlist_routes)
+        .nest("/alerts", alert_routes);
 
     // Build health check route
     let health_route = Router::new()

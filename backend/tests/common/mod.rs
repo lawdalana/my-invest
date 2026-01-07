@@ -58,8 +58,7 @@ pub fn create_test_config() -> Config {
         alpha_vantage: AlphaVantageConfig {
             api_key: "test-api-key".to_string(),
             base_url: "http://localhost:8888".to_string(), // Will be overridden by mock
-            rate_limit: 5,
-            daily_limit: 500,
+            timeout_seconds: 30,
         },
         rate_limit: RateLimitConfig {
             requests: 100,
