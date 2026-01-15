@@ -25,6 +25,7 @@ use crate::services::{
     auth_service::AuthService,
     notification_sender::QueuedNotificationSender,
     watchlist_service::WatchlistService,
+    ws_service::{WsConfig, WsService},
 };
 use crate::utils::jwt::JwtManager;
 use crate::utils::logging;
@@ -86,6 +87,17 @@ async fn main() -> anyhow::Result<()> {
         config.app.max_alerts_per_user,
     );
 
+    // Create WebSocket service
+    let ws_config = WsConfig::from_env();
+    info!(
+        "Creating WebSocket service with update interval: {}s",
+        ws_config.update_interval_seconds
+    );
+    let ws_service = Arc::new(WsService::new(
+        asset_service.clone(),
+        ws_config.update_interval_seconds,
+    ));
+
     // Create application state
     let app_state = AppState {
         auth_service,
@@ -93,6 +105,7 @@ async fn main() -> anyhow::Result<()> {
         watchlist_service,
         alert_service: alert_service.clone(),
         jwt_manager: Arc::new(jwt_manager),
+        ws_service: Some(ws_service.clone()),
     };
 
     // Build the router
@@ -119,6 +132,13 @@ async fn main() -> anyhow::Result<()> {
         info!("Starting alert processor background task");
         alert_processor.run().await;
         info!("Alert processor stopped");
+    });
+
+    // Spawn the WebSocket price updater background task
+    tokio::spawn(async move {
+        info!("Starting WebSocket price updater background task");
+        ws_service.run_price_updater().await;
+        info!("WebSocket price updater stopped");
     });
 
     // Parse server address

@@ -96,44 +96,66 @@ pub async fn refresh_token(
     Ok(Json(response))
 }
 
-/// Handler for password reset request (stub)
+/// Handler for password reset request
 ///
 /// POST /api/v1/auth/reset-password
 ///
-/// Note: This is a stub for Phase 1. Full implementation requires email service.
-#[instrument(skip(request))]
+/// Initiates a password reset by generating a secure token and storing it
+/// in the database. In a production environment, this token would be sent
+/// via email. Currently, the token is logged for development purposes.
+///
+/// For security, this endpoint always returns success even if the email
+/// doesn't exist, to prevent email enumeration attacks.
+#[instrument(skip(auth_service, request))]
 pub async fn request_password_reset(
+    State(auth_service): State<AuthService>,
     Json(request): Json<PasswordResetRequest>,
 ) -> Result<Json<MessageResponse>, AppError> {
     // Validate request
     request.validate()?;
 
-    info!(email = %request.email, "Password reset requested (stub)");
+    info!(email = %request.email, "Password reset requested");
 
-    // For Phase 1, we return a not implemented error
-    Err(AppError::NotImplemented(
-        "Password reset will be available in a future release. Please contact support for assistance.".to_string()
-    ))
+    // Process the password reset request
+    let token = auth_service.request_password_reset(request.clone()).await?;
+
+    // Log the token for development purposes (in production, this would be sent via email)
+    if let Some(ref plain_token) = token {
+        info!(
+            email = %request.email,
+            token = %plain_token,
+            "Password reset token generated (would be sent via email in production)"
+        );
+    }
+
+    // Always return success message to prevent email enumeration
+    Ok(Json(MessageResponse {
+        message: "If an account with this email exists, you will receive a password reset link shortly.".to_string(),
+    }))
 }
 
-/// Handler for password reset confirmation (stub)
+/// Handler for password reset confirmation
 ///
 /// POST /api/v1/auth/reset-password/confirm
 ///
-/// Note: This is a stub for Phase 1. Full implementation requires email service.
-#[instrument(skip(request))]
+/// Validates the reset token, updates the user's password, and invalidates
+/// all existing sessions (refresh tokens) for the user.
+#[instrument(skip(auth_service, request))]
 pub async fn confirm_password_reset(
+    State(auth_service): State<AuthService>,
     Json(request): Json<PasswordResetConfirmRequest>,
 ) -> Result<Json<MessageResponse>, AppError> {
     // Validate request
     request.validate()?;
 
-    info!("Password reset confirmation requested (stub)");
+    info!("Password reset confirmation requested");
 
-    // For Phase 1, we return a not implemented error
-    Err(AppError::NotImplemented(
-        "Password reset will be available in a future release. Please contact support for assistance.".to_string()
-    ))
+    // Process the password reset confirmation
+    auth_service.confirm_password_reset(request).await?;
+
+    Ok(Json(MessageResponse {
+        message: "Password has been reset successfully. Please log in with your new password.".to_string(),
+    }))
 }
 
 /// Handler for getting current user info

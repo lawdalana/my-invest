@@ -251,6 +251,74 @@ impl RefreshToken {
     }
 }
 
+/// Password reset token entity stored in MongoDB
+///
+/// Uses the split-token pattern for security:
+/// - `selector`: Stored in plain text for fast O(1) database lookups
+/// - `verifier_hash`: Argon2id hash of the verifier for cryptographic security
+///
+/// This provides both performance (indexed lookups) and security
+/// (even with database access, tokens can't be brute-forced).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PasswordResetToken {
+    /// Unique identifier
+    #[serde(rename = "_id")]
+    pub id: ObjectId,
+
+    /// Associated user ID
+    pub user_id: ObjectId,
+
+    /// Token selector for database lookup (first 16 chars of full token)
+    /// Stored in plain text, indexed for fast lookups
+    pub selector: String,
+
+    /// Argon2id hash of the verifier (remaining 48 chars of full token)
+    /// Even with DB access, attackers can't recover the verifier
+    pub verifier_hash: String,
+
+    /// Token expiration timestamp (typically 1 hour from creation)
+    pub expires_at: DateTime<Utc>,
+
+    /// Token creation timestamp
+    pub created_at: DateTime<Utc>,
+
+    /// Whether the token has been used
+    #[serde(default)]
+    pub used: bool,
+}
+
+impl PasswordResetToken {
+    /// Create a new password reset token entry
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The ID of the user requesting password reset
+    /// * `selector` - The selector portion for database lookup
+    /// * `verifier_hash` - Argon2id hash of the verifier
+    /// * `expires_at` - When the token expires
+    pub fn new(user_id: ObjectId, selector: String, verifier_hash: String, expires_at: DateTime<Utc>) -> Self {
+        Self {
+            id: ObjectId::new(),
+            user_id,
+            selector,
+            verifier_hash,
+            expires_at,
+            created_at: Utc::now(),
+            used: false,
+        }
+    }
+
+    /// Check if the token is expired
+    pub fn is_expired(&self) -> bool {
+        Utc::now() > self.expires_at
+    }
+
+    /// Check if the token is valid (not expired and not used)
+    pub fn is_valid(&self) -> bool {
+        !self.used && !self.is_expired()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -323,6 +391,47 @@ mod tests {
             Utc::now() + chrono::Duration::hours(1),
         );
         token.revoked = true;
+
+        assert!(!token.is_valid());
+        assert!(!token.is_expired());
+    }
+
+    #[test]
+    fn test_password_reset_token_is_valid() {
+        let token = PasswordResetToken::new(
+            ObjectId::new(),
+            "selector123456ab".to_string(),
+            "$argon2id$v=19$m=19456,t=2,p=1$hash".to_string(),
+            Utc::now() + chrono::Duration::hours(1),
+        );
+
+        assert!(token.is_valid());
+        assert!(!token.is_expired());
+        assert!(!token.used);
+    }
+
+    #[test]
+    fn test_password_reset_token_expired() {
+        let token = PasswordResetToken::new(
+            ObjectId::new(),
+            "selector123456ab".to_string(),
+            "$argon2id$v=19$m=19456,t=2,p=1$hash".to_string(),
+            Utc::now() - chrono::Duration::hours(1),
+        );
+
+        assert!(!token.is_valid());
+        assert!(token.is_expired());
+    }
+
+    #[test]
+    fn test_password_reset_token_used() {
+        let mut token = PasswordResetToken::new(
+            ObjectId::new(),
+            "selector123456ab".to_string(),
+            "$argon2id$v=19$m=19456,t=2,p=1$hash".to_string(),
+            Utc::now() + chrono::Duration::hours(1),
+        );
+        token.used = true;
 
         assert!(!token.is_valid());
         assert!(!token.is_expired());

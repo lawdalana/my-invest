@@ -225,7 +225,7 @@ impl AlphaVantageClient {
     /// # Arguments
     ///
     /// * `symbol` - Stock ticker symbol
-    /// * `days` - Number of days of history to return
+    /// * `days` - Number of days of history to return (use `usize::MAX` for all available data)
     ///
     /// # Returns
     ///
@@ -240,6 +240,7 @@ impl AlphaVantageClient {
         info!(symbol = symbol, days = days, "Fetching daily history");
 
         // Use compact output for up to 100 days, full for more
+        // Also use full for usize::MAX (MAX timeframe - all available data)
         let output_size = if days <= 100 { "compact" } else { "full" };
 
         let url = format!(
@@ -301,9 +302,14 @@ impl AlphaVantageClient {
         // Sort by timestamp ascending
         data_points.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
 
-        // Limit to requested days
-        let start_index = data_points.len().saturating_sub(days);
-        let result: Vec<HistoricalDataPoint> = data_points[start_index..].to_vec();
+        // Limit to requested days (skip limiting for MAX timeframe - usize::MAX)
+        let result = if days == usize::MAX {
+            // Return all available data for MAX timeframe
+            data_points
+        } else {
+            let start_index = data_points.len().saturating_sub(days);
+            data_points[start_index..].to_vec()
+        };
 
         debug!(
             symbol = symbol,

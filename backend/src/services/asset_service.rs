@@ -13,7 +13,7 @@ use tracing::{debug, info, instrument};
 
 use crate::config::database::RedisDb;
 use crate::config::RedisConfig;
-use crate::models::asset::{Asset, PriceHistory, SearchResult, Timeframe};
+use crate::models::asset::{Asset, AssetType, PriceHistory, SearchResult, Timeframe};
 use crate::services::alpha_vantage_client::AlphaVantageClient;
 use crate::utils::error::Result;
 
@@ -46,39 +46,60 @@ impl AssetService {
         }
     }
 
-    /// Search for stocks by keyword
+    /// Search for assets by keyword with optional type filter
     ///
     /// Results are cached for 5 minutes to reduce API calls.
+    /// The cache key includes the asset type filter for proper cache separation.
     ///
     /// # Arguments
     ///
     /// * `query` - Search keyword
+    /// * `asset_type` - Optional filter by asset type (Stock, Crypto, Etf, Bond)
     ///
     /// # Returns
     ///
-    /// * `Ok(Vec<SearchResult>)` - Matching stocks
+    /// * `Ok(Vec<SearchResult>)` - Matching assets
     #[instrument(skip(self))]
-    pub async fn search(&self, query: &str) -> Result<Vec<SearchResult>> {
-        let cache_key = format!("{}{}", CACHE_PREFIX_SEARCH, query.to_lowercase());
+    pub async fn search(
+        &self,
+        query: &str,
+        asset_type: Option<AssetType>,
+    ) -> Result<Vec<SearchResult>> {
+        // Include asset type in cache key for proper separation
+        // Use "||type:" delimiter to prevent collisions (e.g., searching for "apple:stock"
+        // would otherwise collide with searching for "apple" with type=stock filter)
+        let cache_key = match asset_type {
+            Some(ref t) => format!("{}{}||type:{}", CACHE_PREFIX_SEARCH, query.to_lowercase(), t.as_str()),
+            None => format!("{}{}||type:all", CACHE_PREFIX_SEARCH, query.to_lowercase()),
+        };
 
         // Try cache first
         if let Ok(Some(cached)) = self.redis.get(&cache_key).await {
-            debug!(query = query, "Search cache hit");
+            debug!(query = query, asset_type = ?asset_type, "Search cache hit");
             if let Ok(results) = serde_json::from_str::<Vec<SearchResult>>(&cached) {
                 return Ok(results);
             }
         }
 
         // Cache miss - fetch from API
-        info!(query = query, "Search cache miss, fetching from API");
+        info!(query = query, asset_type = ?asset_type, "Search cache miss, fetching from API");
         let results = self.alpha_vantage.search(query).await?;
 
-        // Cache the results
-        if let Ok(json) = serde_json::to_string(&results) {
-            let _ = self.redis.set_with_ttl(&cache_key, &json, self.cache_ttl).await;
+        // Filter by asset type if specified
+        let filtered_results: Vec<SearchResult> = match asset_type {
+            Some(t) => results.into_iter().filter(|r| r.asset_type == t).collect(),
+            None => results,
+        };
+
+        // Cache the filtered results
+        if let Ok(json) = serde_json::to_string(&filtered_results) {
+            let _ = self
+                .redis
+                .set_with_ttl(&cache_key, &json, self.cache_ttl)
+                .await;
         }
 
-        Ok(results)
+        Ok(filtered_results)
     }
 
     /// Get current price quote for a stock
@@ -111,7 +132,7 @@ impl AssetService {
 
         // Try to get the company name from search if we have it cached
         if asset.name == asset.symbol {
-            if let Ok(search_results) = self.search(&symbol_upper).await {
+            if let Ok(search_results) = self.search(&symbol_upper, None).await {
                 if let Some(result) = search_results.iter().find(|r| r.symbol == symbol_upper) {
                     asset.name = result.name.clone();
                 }
@@ -164,7 +185,12 @@ impl AssetService {
         );
 
         // Determine number of days to fetch based on timeframe
-        let days = timeframe.days() as usize;
+        // For Max timeframe, use usize::MAX to signal all available data
+        let days = if timeframe == Timeframe::Max {
+            usize::MAX
+        } else {
+            timeframe.days() as usize
+        };
 
         let data = self
             .alpha_vantage
@@ -217,7 +243,7 @@ impl AssetService {
         let _ = self.redis.delete(&quote_key).await;
 
         // Delete history cache for all timeframes
-        for timeframe in ["1D", "1W", "1M", "1Y"] {
+        for timeframe in ["1D", "1W", "1M", "3M", "6M", "1Y", "5Y", "MAX"] {
             let history_key = format!("{}{}:{}", CACHE_PREFIX_HISTORY, symbol_upper, timeframe);
             let _ = self.redis.delete(&history_key).await;
         }
