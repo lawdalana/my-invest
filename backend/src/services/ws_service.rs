@@ -208,9 +208,16 @@ impl WsService {
                 continue;
             }
 
-            // Validate symbol format (basic validation)
+            // Validate symbol format
             if symbol.is_empty() || symbol.len() > 20 {
-                errors.push((symbol.clone(), "Invalid symbol format"));
+                errors.push((symbol.clone(), "Invalid symbol length (1-20 characters)"));
+                continue;
+            }
+
+            // Validate symbol contains only valid characters (alphanumeric, dash, dot)
+            // This prevents injection attacks and ensures valid ticker symbols
+            if !symbol.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.') {
+                errors.push((symbol.clone(), "Symbol contains invalid characters"));
                 continue;
             }
 

@@ -210,6 +210,47 @@ impl MongoDb {
                 AppError::DatabaseError(format!("Failed to create alert unique index: {}", e))
             })?;
 
+        // Password reset tokens collection indexes
+        let reset_tokens_collection = self.database.collection::<mongodb::bson::Document>("password_reset_tokens");
+
+        // Selector index for fast lookups (split-token pattern)
+        let reset_selector_index = IndexModel::builder()
+            .keys(doc! { "selector": 1 })
+            .options(IndexOptions::builder().unique(true).build())
+            .build();
+
+        reset_tokens_collection
+            .create_index(reset_selector_index, None)
+            .await
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to create reset token selector index: {}", e))
+            })?;
+
+        // User ID index for invalidating existing tokens
+        let reset_user_index = IndexModel::builder()
+            .keys(doc! { "user_id": 1 })
+            .build();
+
+        reset_tokens_collection
+            .create_index(reset_user_index, None)
+            .await
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to create reset token user_id index: {}", e))
+            })?;
+
+        // TTL index for automatic token expiration (security critical)
+        let reset_ttl_index = IndexModel::builder()
+            .keys(doc! { "expires_at": 1 })
+            .options(IndexOptions::builder().expire_after(std::time::Duration::from_secs(0)).build())
+            .build();
+
+        reset_tokens_collection
+            .create_index(reset_ttl_index, None)
+            .await
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to create reset token TTL index: {}", e))
+            })?;
+
         info!("MongoDB indexes created successfully");
 
         Ok(())

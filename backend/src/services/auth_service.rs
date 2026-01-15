@@ -280,20 +280,26 @@ impl AuthService {
             )
             .await?;
 
-        // Generate a secure random token
-        let plain_token = password::generate_reset_token();
-        let token_hash = password::hash_reset_token(&plain_token);
+        // Generate a secure random token using split-token pattern
+        let token_parts = password::generate_reset_token();
+        let verifier_hash = password::hash_reset_token(&token_parts.verifier)?;
 
         // Token expires in 1 hour
         let expires_at = Utc::now() + Duration::hours(1);
 
-        // Create and store the token
-        let reset_token = PasswordResetToken::new(user.id, token_hash, expires_at);
+        // Create and store the token with selector and verifier hash
+        let reset_token = PasswordResetToken::new(
+            user.id,
+            token_parts.selector,
+            verifier_hash,
+            expires_at,
+        );
         self.password_reset_tokens.insert_one(&reset_token, None).await?;
 
         info!(user_id = %user.id, "Password reset token created");
 
-        Ok(Some(plain_token))
+        // Return the full token to be sent to the user (via email)
+        Ok(Some(token_parts.full_token))
     }
 
     /// Confirm a password reset
@@ -320,15 +326,15 @@ impl AuthService {
         // Validate password strength
         password::validate_strength(&request.new_password, self.min_password_length)?;
 
-        // Hash the provided token to look it up
-        let token_hash = password::hash_reset_token(&request.token);
+        // Parse the token into selector and verifier
+        let (selector, verifier) = password::parse_reset_token(&request.token)?;
 
-        // Find the token in the database
+        // Find the token by selector (fast indexed lookup)
         let stored_token = self
             .password_reset_tokens
             .find_one(
                 doc! {
-                    "token_hash": &token_hash,
+                    "selector": &selector,
                     "used": false
                 },
                 None,
@@ -343,6 +349,13 @@ impl AuthService {
         if !stored_token.is_valid() {
             warn!("Password reset token expired");
             return Err(AppError::InvalidToken("Reset token has expired".to_string()));
+        }
+
+        // Verify the verifier against the stored hash (cryptographically secure)
+        let is_valid = password::verify_reset_token(&verifier, &stored_token.verifier_hash)?;
+        if !is_valid {
+            warn!("Password reset token verifier mismatch");
+            return Err(AppError::InvalidToken("Invalid or expired reset token".to_string()));
         }
 
         // Get the user

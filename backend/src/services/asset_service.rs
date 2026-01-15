@@ -66,9 +66,11 @@ impl AssetService {
         asset_type: Option<AssetType>,
     ) -> Result<Vec<SearchResult>> {
         // Include asset type in cache key for proper separation
+        // Use "||type:" delimiter to prevent collisions (e.g., searching for "apple:stock"
+        // would otherwise collide with searching for "apple" with type=stock filter)
         let cache_key = match asset_type {
-            Some(ref t) => format!("{}{}:{}", CACHE_PREFIX_SEARCH, query.to_lowercase(), t.as_str()),
-            None => format!("{}{}", CACHE_PREFIX_SEARCH, query.to_lowercase()),
+            Some(ref t) => format!("{}{}||type:{}", CACHE_PREFIX_SEARCH, query.to_lowercase(), t.as_str()),
+            None => format!("{}{}||type:all", CACHE_PREFIX_SEARCH, query.to_lowercase()),
         };
 
         // Try cache first

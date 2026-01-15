@@ -127,86 +127,150 @@ pub fn validate_strength(password: &str, min_length: usize) -> Result<()> {
     Ok(())
 }
 
-/// Generate a secure random token for password reset
+/// Reset token parts for the split-token security pattern
+///
+/// The split-token pattern provides both fast database lookups and
+/// strong cryptographic security:
+/// - `selector`: Used for database lookup (stored in plain text)
+/// - `verifier`: Hashed with Argon2 for verification (stored as hash)
+#[derive(Debug)]
+pub struct ResetTokenParts {
+    /// The selector portion used for database lookup (16 hex chars)
+    pub selector: String,
+    /// The verifier portion to be hashed with Argon2 (48 hex chars)
+    pub verifier: String,
+    /// The full token to return to the user (64 hex chars)
+    pub full_token: String,
+}
+
+/// Generate a secure random token for password reset using split-token pattern
 ///
 /// Generates a 32-byte (256-bit) cryptographically secure random token
-/// and returns it as a hex-encoded string.
+/// split into:
+/// - Selector (8 bytes / 16 hex chars): stored in plain text for lookups
+/// - Verifier (24 bytes / 48 hex chars): hashed with Argon2 for verification
+///
+/// This pattern provides:
+/// - Fast O(1) database lookups via indexed selector
+/// - Strong cryptographic protection via Argon2-hashed verifier
+/// - Even with database compromise, attackers can't use tokens directly
 ///
 /// # Returns
 ///
-/// * `String` - A 64-character hex-encoded random token
+/// * `ResetTokenParts` - Containing selector, verifier, and full token
 ///
 /// # Example
 ///
 /// ```ignore
 /// use my_invest_backend::utils::password;
 ///
-/// let token = password::generate_reset_token();
-/// assert_eq!(token.len(), 64); // 32 bytes = 64 hex characters
+/// let parts = password::generate_reset_token();
+/// assert_eq!(parts.selector.len(), 16);  // 8 bytes hex-encoded
+/// assert_eq!(parts.verifier.len(), 48);  // 24 bytes hex-encoded
+/// assert_eq!(parts.full_token.len(), 64); // 32 bytes hex-encoded
 /// ```
-pub fn generate_reset_token() -> String {
+pub fn generate_reset_token() -> ResetTokenParts {
     use argon2::password_hash::rand_core::RngCore;
 
     let mut bytes = [0u8; 32];
     OsRng.fill_bytes(&mut bytes);
-    hex::encode(bytes)
+
+    let full_token = hex::encode(bytes);
+
+    ResetTokenParts {
+        selector: full_token[..16].to_string(),    // First 8 bytes
+        verifier: full_token[16..].to_string(),    // Remaining 24 bytes
+        full_token,
+    }
 }
 
-/// Hash a reset token using SHA-256
-///
-/// We store hashed tokens in the database so that even if the database
-/// is compromised, the tokens cannot be used directly.
+/// Parse a reset token into selector and verifier parts
 ///
 /// # Arguments
 ///
-/// * `token` - The plain text token to hash
+/// * `token` - The full 64-character hex token
 ///
 /// # Returns
 ///
-/// * `String` - The SHA-256 hash of the token as a hex string
+/// * `Ok((selector, verifier))` - The parsed parts
+/// * `Err(AppError)` - If token format is invalid
+pub fn parse_reset_token(token: &str) -> Result<(String, String)> {
+    if token.len() != 64 {
+        return Err(AppError::ValidationError(
+            "Invalid reset token format".to_string()
+        ));
+    }
+
+    // Validate it's all hex characters
+    if !token.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(AppError::ValidationError(
+            "Invalid reset token format".to_string()
+        ));
+    }
+
+    Ok((token[..16].to_string(), token[16..].to_string()))
+}
+
+/// Hash a reset token verifier using Argon2id
 ///
-/// # Example
+/// We store hashed verifiers in the database so that even if the database
+/// is compromised, the tokens cannot be brute-forced. Using Argon2id
+/// provides strong protection against GPU-based attacks.
 ///
-/// ```ignore
-/// use my_invest_backend::utils::password;
+/// # Arguments
 ///
-/// let token = "my_reset_token";
-/// let hash = password::hash_reset_token(token);
-/// assert_eq!(hash.len(), 64); // SHA-256 produces 32 bytes = 64 hex characters
-/// ```
-pub fn hash_reset_token(token: &str) -> String {
+/// * `verifier` - The verifier portion of the reset token
+///
+/// # Returns
+///
+/// * `Ok(String)` - The Argon2id hash in PHC string format
+/// * `Err(AppError)` - If hashing fails
+pub fn hash_reset_token(verifier: &str) -> Result<String> {
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+
+    let verifier_hash = argon2
+        .hash_password(verifier.as_bytes(), &salt)
+        .map_err(|_| AppError::PasswordHashError)?;
+
+    Ok(verifier_hash.to_string())
+}
+
+/// Verify a reset token verifier against a stored hash
+///
+/// Uses Argon2id verification which provides built-in timing-attack resistance.
+///
+/// # Arguments
+///
+/// * `verifier` - The verifier portion of the reset token
+/// * `stored_hash` - The stored Argon2id hash in PHC string format
+///
+/// # Returns
+///
+/// * `Ok(true)` - Verifier matches
+/// * `Ok(false)` - Verifier does not match
+/// * `Err(AppError)` - If the hash format is invalid
+pub fn verify_reset_token(verifier: &str, stored_hash: &str) -> Result<bool> {
+    let parsed_hash = PasswordHash::new(stored_hash)
+        .map_err(|_| AppError::PasswordHashError)?;
+
+    let argon2 = Argon2::default();
+
+    match argon2.verify_password(verifier.as_bytes(), &parsed_hash) {
+        Ok(()) => Ok(true),
+        Err(argon2::password_hash::Error::Password) => Ok(false),
+        Err(_) => Err(AppError::PasswordHashError),
+    }
+}
+
+/// Hash a value using SHA-256
+///
+/// Used internally for non-sensitive lookups only.
+#[allow(dead_code)]
+fn sha256_hash(value: &str) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(token.as_bytes());
+    hasher.update(value.as_bytes());
     hex::encode(hasher.finalize())
-}
-
-/// Verify a reset token against a stored hash
-///
-/// # Arguments
-///
-/// * `token` - The plain text token to verify
-/// * `stored_hash` - The stored SHA-256 hash
-///
-/// # Returns
-///
-/// * `bool` - True if the token matches the hash
-pub fn verify_reset_token(token: &str, stored_hash: &str) -> bool {
-    let computed_hash = hash_reset_token(token);
-    // Use constant-time comparison to prevent timing attacks
-    constant_time_eq(&computed_hash, stored_hash)
-}
-
-/// Constant-time string comparison to prevent timing attacks
-fn constant_time_eq(a: &str, b: &str) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-
-    let mut result = 0u8;
-    for (x, y) in a.bytes().zip(b.bytes()) {
-        result |= x ^ y;
-    }
-    result == 0
 }
 
 #[cfg(test)]
@@ -317,54 +381,99 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_reset_token_length() {
-        let token = generate_reset_token();
-        // 32 bytes = 64 hex characters
-        assert_eq!(token.len(), 64);
+    fn test_generate_reset_token_parts() {
+        let parts = generate_reset_token();
+        // Selector: 8 bytes = 16 hex characters
+        assert_eq!(parts.selector.len(), 16);
+        // Verifier: 24 bytes = 48 hex characters
+        assert_eq!(parts.verifier.len(), 48);
+        // Full token: 32 bytes = 64 hex characters
+        assert_eq!(parts.full_token.len(), 64);
+        // Full token should be selector + verifier
+        assert_eq!(format!("{}{}", parts.selector, parts.verifier), parts.full_token);
     }
 
     #[test]
     fn test_generate_reset_token_unique() {
-        let token1 = generate_reset_token();
-        let token2 = generate_reset_token();
-        assert_ne!(token1, token2);
+        let parts1 = generate_reset_token();
+        let parts2 = generate_reset_token();
+        assert_ne!(parts1.full_token, parts2.full_token);
+        assert_ne!(parts1.selector, parts2.selector);
+    }
+
+    #[test]
+    fn test_parse_reset_token_valid() {
+        let parts = generate_reset_token();
+        let (selector, verifier) = parse_reset_token(&parts.full_token).expect("Parse should succeed");
+        assert_eq!(selector, parts.selector);
+        assert_eq!(verifier, parts.verifier);
+    }
+
+    #[test]
+    fn test_parse_reset_token_invalid_length() {
+        let result = parse_reset_token("too_short");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_reset_token_invalid_chars() {
+        // 64 chars but with invalid hex
+        let result = parse_reset_token("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz");
+        assert!(result.is_err());
     }
 
     #[test]
     fn test_hash_reset_token() {
-        let token = "test_token";
-        let hash = hash_reset_token(token);
-        // SHA-256 produces 32 bytes = 64 hex characters
-        assert_eq!(hash.len(), 64);
+        let verifier = "test_verifier_string_for_hashing";
+        let hash = hash_reset_token(verifier).expect("Hashing should succeed");
+        // Argon2id hashes start with $argon2id$
+        assert!(hash.starts_with("$argon2id$"));
     }
 
     #[test]
-    fn test_hash_reset_token_deterministic() {
-        let token = "test_token";
-        let hash1 = hash_reset_token(token);
-        let hash2 = hash_reset_token(token);
-        assert_eq!(hash1, hash2);
+    fn test_hash_reset_token_different_salts() {
+        let verifier = "test_verifier";
+        let hash1 = hash_reset_token(verifier).expect("Hashing should succeed");
+        let hash2 = hash_reset_token(verifier).expect("Hashing should succeed");
+        // Different salts should produce different hashes
+        assert_ne!(hash1, hash2);
     }
 
     #[test]
     fn test_verify_reset_token_valid() {
-        let token = "test_token";
-        let hash = hash_reset_token(token);
-        assert!(verify_reset_token(token, &hash));
+        let verifier = "test_verifier_for_verification";
+        let hash = hash_reset_token(verifier).expect("Hashing should succeed");
+        assert!(verify_reset_token(verifier, &hash).expect("Verification should succeed"));
     }
 
     #[test]
     fn test_verify_reset_token_invalid() {
-        let token = "test_token";
-        let hash = hash_reset_token(token);
-        assert!(!verify_reset_token("wrong_token", &hash));
+        let verifier = "test_verifier";
+        let hash = hash_reset_token(verifier).expect("Hashing should succeed");
+        assert!(!verify_reset_token("wrong_verifier", &hash).expect("Verification should succeed"));
     }
 
     #[test]
-    fn test_constant_time_eq() {
-        assert!(constant_time_eq("hello", "hello"));
-        assert!(!constant_time_eq("hello", "world"));
-        assert!(!constant_time_eq("hello", "hell"));
-        assert!(!constant_time_eq("", "a"));
+    fn test_verify_reset_token_invalid_hash_format() {
+        let result = verify_reset_token("verifier", "invalid_hash");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_full_reset_token_flow() {
+        // Generate token
+        let parts = generate_reset_token();
+
+        // Hash verifier (what gets stored in DB)
+        let stored_hash = hash_reset_token(&parts.verifier).expect("Hashing should succeed");
+
+        // Parse the full token (simulating user submitting token)
+        let (selector, verifier) = parse_reset_token(&parts.full_token).expect("Parse should succeed");
+
+        // Verify selector matches (for DB lookup)
+        assert_eq!(selector, parts.selector);
+
+        // Verify verifier against stored hash
+        assert!(verify_reset_token(&verifier, &stored_hash).expect("Verification should succeed"));
     }
 }
