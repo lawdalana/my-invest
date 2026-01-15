@@ -5,14 +5,14 @@
 //! and database operations.
 
 use chrono::{Duration, Utc};
-use mongodb::bson::{doc, oid::ObjectId};
+use mongodb::bson::{doc, oid::ObjectId, DateTime as BsonDateTime};
 use mongodb::Collection;
 use tracing::{info, instrument, warn};
 
 use crate::config::database::MongoDb;
 use crate::models::user::{
-    AuthResponse, LoginRequest, RefreshToken, RefreshTokenRequest, RegisterRequest, User,
-    UserResponse,
+    AuthResponse, LoginRequest, PasswordResetConfirmRequest, PasswordResetRequest,
+    PasswordResetToken, RefreshToken, RefreshTokenRequest, RegisterRequest, User, UserResponse,
 };
 use crate::utils::error::{AppError, Result};
 use crate::utils::jwt::JwtManager;
@@ -23,6 +23,7 @@ use crate::utils::password;
 pub struct AuthService {
     users: Collection<User>,
     refresh_tokens: Collection<RefreshToken>,
+    password_reset_tokens: Collection<PasswordResetToken>,
     jwt: JwtManager,
     min_password_length: usize,
 }
@@ -33,6 +34,7 @@ impl AuthService {
         Self {
             users: db.database().collection("users"),
             refresh_tokens: db.database().collection("refresh_tokens"),
+            password_reset_tokens: db.database().collection("password_reset_tokens"),
             jwt,
             min_password_length,
         }
@@ -229,6 +231,166 @@ impl AuthService {
             .find_one(doc! { "_id": user_id }, None)
             .await?
             .ok_or_else(|| AppError::NotFound("User not found".to_string()))
+    }
+
+    /// Request a password reset
+    ///
+    /// Generates a secure reset token, stores it hashed in the database,
+    /// and returns the plain token (for logging/email). The token expires
+    /// after 1 hour.
+    ///
+    /// For security, this method always succeeds (returns Ok) even if the
+    /// email doesn't exist, to prevent email enumeration attacks.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - Password reset request containing the email
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Option<String>)` - The plain reset token if user exists, None otherwise
+    #[instrument(skip(self, request), fields(email = %request.email))]
+    pub async fn request_password_reset(
+        &self,
+        request: PasswordResetRequest,
+    ) -> Result<Option<String>> {
+        info!("Processing password reset request");
+
+        // Find user by email
+        let user = self
+            .users
+            .find_one(doc! { "email": &request.email.to_lowercase() }, None)
+            .await?;
+
+        // If user doesn't exist, return Ok(None) to prevent email enumeration
+        let user = match user {
+            Some(u) => u,
+            None => {
+                info!("Password reset requested for non-existent email");
+                return Ok(None);
+            }
+        };
+
+        // Invalidate any existing password reset tokens for this user
+        self.password_reset_tokens
+            .update_many(
+                doc! { "user_id": user.id, "used": false },
+                doc! { "$set": { "used": true } },
+                None,
+            )
+            .await?;
+
+        // Generate a secure random token
+        let plain_token = password::generate_reset_token();
+        let token_hash = password::hash_reset_token(&plain_token);
+
+        // Token expires in 1 hour
+        let expires_at = Utc::now() + Duration::hours(1);
+
+        // Create and store the token
+        let reset_token = PasswordResetToken::new(user.id, token_hash, expires_at);
+        self.password_reset_tokens.insert_one(&reset_token, None).await?;
+
+        info!(user_id = %user.id, "Password reset token created");
+
+        Ok(Some(plain_token))
+    }
+
+    /// Confirm a password reset
+    ///
+    /// Validates the reset token, updates the user's password, and invalidates
+    /// all existing refresh tokens for the user.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - Password reset confirmation request with token and new password
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Password reset successful
+    /// * `Err(AppError::InvalidToken)` - If token is invalid, expired, or already used
+    /// * `Err(AppError::ValidationError)` - If password doesn't meet requirements
+    #[instrument(skip(self, request))]
+    pub async fn confirm_password_reset(
+        &self,
+        request: PasswordResetConfirmRequest,
+    ) -> Result<()> {
+        info!("Processing password reset confirmation");
+
+        // Validate password strength
+        password::validate_strength(&request.new_password, self.min_password_length)?;
+
+        // Hash the provided token to look it up
+        let token_hash = password::hash_reset_token(&request.token);
+
+        // Find the token in the database
+        let stored_token = self
+            .password_reset_tokens
+            .find_one(
+                doc! {
+                    "token_hash": &token_hash,
+                    "used": false
+                },
+                None,
+            )
+            .await?
+            .ok_or_else(|| {
+                warn!("Password reset token not found or already used");
+                AppError::InvalidToken("Invalid or expired reset token".to_string())
+            })?;
+
+        // Check if token is valid (not expired)
+        if !stored_token.is_valid() {
+            warn!("Password reset token expired");
+            return Err(AppError::InvalidToken("Reset token has expired".to_string()));
+        }
+
+        // Get the user
+        let user = self
+            .users
+            .find_one(doc! { "_id": stored_token.user_id }, None)
+            .await?
+            .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+
+        // Hash the new password
+        let password_hash = password::hash(&request.new_password)?;
+
+        // Update the user's password
+        let updated_at = BsonDateTime::now();
+        self.users
+            .update_one(
+                doc! { "_id": user.id },
+                doc! {
+                    "$set": {
+                        "password_hash": password_hash,
+                        "updated_at": updated_at
+                    }
+                },
+                None,
+            )
+            .await?;
+
+        // Mark the reset token as used
+        self.password_reset_tokens
+            .update_one(
+                doc! { "_id": stored_token.id },
+                doc! { "$set": { "used": true } },
+                None,
+            )
+            .await?;
+
+        // Invalidate all refresh tokens for this user (force re-login)
+        self.refresh_tokens
+            .update_many(
+                doc! { "user_id": user.id },
+                doc! { "$set": { "revoked": true } },
+                None,
+            )
+            .await?;
+
+        info!(user_id = %user.id, "Password reset completed successfully");
+
+        Ok(())
     }
 
     /// Create authentication response with tokens

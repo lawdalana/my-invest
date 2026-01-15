@@ -11,17 +11,15 @@ use serde::{Deserialize, Serialize};
 
 /// Asset type enumeration
 ///
-/// Phase 1: Only Stock is supported
-/// Phase 2: Will add Crypto, ETF, Bond
+/// Supports filtering by asset type: Stock, Crypto, ETF, Bond
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum AssetType {
     #[default]
     Stock,
-    // Future asset types (Phase 2):
-    // Crypto,
-    // Etf,
-    // Bond,
+    Crypto,
+    Etf,
+    Bond,
 }
 
 impl AssetType {
@@ -29,6 +27,9 @@ impl AssetType {
     pub fn as_str(&self) -> &'static str {
         match self {
             AssetType::Stock => "stock",
+            AssetType::Crypto => "crypto",
+            AssetType::Etf => "etf",
+            AssetType::Bond => "bond",
         }
     }
 }
@@ -36,6 +37,23 @@ impl AssetType {
 impl std::fmt::Display for AssetType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
+    }
+}
+
+impl std::str::FromStr for AssetType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "stock" => Ok(AssetType::Stock),
+            "crypto" => Ok(AssetType::Crypto),
+            "etf" => Ok(AssetType::Etf),
+            "bond" => Ok(AssetType::Bond),
+            _ => Err(format!(
+                "Invalid asset type: '{}'. Valid values: stock, crypto, etf, bond",
+                s
+            )),
+        }
     }
 }
 
@@ -185,9 +203,25 @@ pub enum Timeframe {
     #[serde(rename = "1M")]
     OneMonth,
 
+    /// 3 Months
+    #[serde(rename = "3M")]
+    ThreeMonths,
+
+    /// 6 Months
+    #[serde(rename = "6M")]
+    SixMonths,
+
     /// 1 Year
     #[serde(rename = "1Y")]
     OneYear,
+
+    /// 5 Years
+    #[serde(rename = "5Y")]
+    FiveYears,
+
+    /// All Time (maximum available history)
+    #[serde(rename = "MAX")]
+    Max,
 }
 
 impl Timeframe {
@@ -197,17 +231,43 @@ impl Timeframe {
             Timeframe::OneDay => "1D",
             Timeframe::OneWeek => "1W",
             Timeframe::OneMonth => "1M",
+            Timeframe::ThreeMonths => "3M",
+            Timeframe::SixMonths => "6M",
             Timeframe::OneYear => "1Y",
+            Timeframe::FiveYears => "5Y",
+            Timeframe::Max => "MAX",
         }
     }
 
     /// Get the number of days for this timeframe
+    ///
+    /// For `Max`, returns `i64::MAX` to indicate all available data should be fetched.
     pub fn days(&self) -> i64 {
         match self {
             Timeframe::OneDay => 1,
             Timeframe::OneWeek => 7,
             Timeframe::OneMonth => 30,
+            Timeframe::ThreeMonths => 90,
+            Timeframe::SixMonths => 180,
             Timeframe::OneYear => 365,
+            Timeframe::FiveYears => 1825, // 5 * 365
+            Timeframe::Max => i64::MAX,   // All available data
+        }
+    }
+
+    /// Check if this timeframe requires full output from the API
+    ///
+    /// Returns true for timeframes longer than 100 days (compact API limit)
+    pub fn requires_full_output(&self) -> bool {
+        match self {
+            Timeframe::OneDay => false,
+            Timeframe::OneWeek => false,
+            Timeframe::OneMonth => false,
+            Timeframe::ThreeMonths => false,
+            Timeframe::SixMonths => true,
+            Timeframe::OneYear => true,
+            Timeframe::FiveYears => true,
+            Timeframe::Max => true,
         }
     }
 }
@@ -220,8 +280,15 @@ impl std::str::FromStr for Timeframe {
             "1D" => Ok(Timeframe::OneDay),
             "1W" => Ok(Timeframe::OneWeek),
             "1M" => Ok(Timeframe::OneMonth),
+            "3M" => Ok(Timeframe::ThreeMonths),
+            "6M" => Ok(Timeframe::SixMonths),
             "1Y" => Ok(Timeframe::OneYear),
-            _ => Err(format!("Invalid timeframe: {}. Valid values: 1D, 1W, 1M, 1Y", s)),
+            "5Y" => Ok(Timeframe::FiveYears),
+            "MAX" => Ok(Timeframe::Max),
+            _ => Err(format!(
+                "Invalid timeframe: {}. Valid values: 1D, 1W, 1M, 3M, 6M, 1Y, 5Y, MAX",
+                s
+            )),
         }
     }
 }
@@ -330,8 +397,9 @@ pub struct SearchQuery {
     /// Search query string
     pub q: String,
 
-    /// Optional asset type filter (defaults to stock in Phase 1)
-    #[serde(default)]
+    /// Optional asset type filter (stock, crypto, etf, bond - case insensitive)
+    /// If not provided, returns all asset types
+    #[serde(default, rename = "type")]
     pub asset_type: Option<String>,
 }
 
@@ -350,6 +418,34 @@ mod tests {
     #[test]
     fn test_asset_type_display() {
         assert_eq!(AssetType::Stock.to_string(), "stock");
+        assert_eq!(AssetType::Crypto.to_string(), "crypto");
+        assert_eq!(AssetType::Etf.to_string(), "etf");
+        assert_eq!(AssetType::Bond.to_string(), "bond");
+    }
+
+    #[test]
+    fn test_asset_type_from_str() {
+        // Test lowercase
+        assert_eq!("stock".parse::<AssetType>().unwrap(), AssetType::Stock);
+        assert_eq!("crypto".parse::<AssetType>().unwrap(), AssetType::Crypto);
+        assert_eq!("etf".parse::<AssetType>().unwrap(), AssetType::Etf);
+        assert_eq!("bond".parse::<AssetType>().unwrap(), AssetType::Bond);
+
+        // Test uppercase
+        assert_eq!("STOCK".parse::<AssetType>().unwrap(), AssetType::Stock);
+        assert_eq!("CRYPTO".parse::<AssetType>().unwrap(), AssetType::Crypto);
+        assert_eq!("ETF".parse::<AssetType>().unwrap(), AssetType::Etf);
+        assert_eq!("BOND".parse::<AssetType>().unwrap(), AssetType::Bond);
+
+        // Test mixed case
+        assert_eq!("Stock".parse::<AssetType>().unwrap(), AssetType::Stock);
+        assert_eq!("Crypto".parse::<AssetType>().unwrap(), AssetType::Crypto);
+        assert_eq!("Etf".parse::<AssetType>().unwrap(), AssetType::Etf);
+        assert_eq!("Bond".parse::<AssetType>().unwrap(), AssetType::Bond);
+
+        // Test invalid
+        assert!("invalid".parse::<AssetType>().is_err());
+        assert!("".parse::<AssetType>().is_err());
     }
 
     #[test]
@@ -376,9 +472,22 @@ mod tests {
     #[test]
     fn test_timeframe_from_str() {
         assert_eq!("1D".parse::<Timeframe>().unwrap(), Timeframe::OneDay);
+        assert_eq!("1d".parse::<Timeframe>().unwrap(), Timeframe::OneDay);
         assert_eq!("1w".parse::<Timeframe>().unwrap(), Timeframe::OneWeek);
+        assert_eq!("1W".parse::<Timeframe>().unwrap(), Timeframe::OneWeek);
         assert_eq!("1M".parse::<Timeframe>().unwrap(), Timeframe::OneMonth);
+        assert_eq!("1m".parse::<Timeframe>().unwrap(), Timeframe::OneMonth);
+        assert_eq!("3M".parse::<Timeframe>().unwrap(), Timeframe::ThreeMonths);
+        assert_eq!("3m".parse::<Timeframe>().unwrap(), Timeframe::ThreeMonths);
+        assert_eq!("6M".parse::<Timeframe>().unwrap(), Timeframe::SixMonths);
+        assert_eq!("6m".parse::<Timeframe>().unwrap(), Timeframe::SixMonths);
         assert_eq!("1Y".parse::<Timeframe>().unwrap(), Timeframe::OneYear);
+        assert_eq!("1y".parse::<Timeframe>().unwrap(), Timeframe::OneYear);
+        assert_eq!("5Y".parse::<Timeframe>().unwrap(), Timeframe::FiveYears);
+        assert_eq!("5y".parse::<Timeframe>().unwrap(), Timeframe::FiveYears);
+        assert_eq!("MAX".parse::<Timeframe>().unwrap(), Timeframe::Max);
+        assert_eq!("max".parse::<Timeframe>().unwrap(), Timeframe::Max);
+        assert_eq!("Max".parse::<Timeframe>().unwrap(), Timeframe::Max);
         assert!("invalid".parse::<Timeframe>().is_err());
     }
 
@@ -387,7 +496,35 @@ mod tests {
         assert_eq!(Timeframe::OneDay.days(), 1);
         assert_eq!(Timeframe::OneWeek.days(), 7);
         assert_eq!(Timeframe::OneMonth.days(), 30);
+        assert_eq!(Timeframe::ThreeMonths.days(), 90);
+        assert_eq!(Timeframe::SixMonths.days(), 180);
         assert_eq!(Timeframe::OneYear.days(), 365);
+        assert_eq!(Timeframe::FiveYears.days(), 1825);
+        assert_eq!(Timeframe::Max.days(), i64::MAX);
+    }
+
+    #[test]
+    fn test_timeframe_as_str() {
+        assert_eq!(Timeframe::OneDay.as_str(), "1D");
+        assert_eq!(Timeframe::OneWeek.as_str(), "1W");
+        assert_eq!(Timeframe::OneMonth.as_str(), "1M");
+        assert_eq!(Timeframe::ThreeMonths.as_str(), "3M");
+        assert_eq!(Timeframe::SixMonths.as_str(), "6M");
+        assert_eq!(Timeframe::OneYear.as_str(), "1Y");
+        assert_eq!(Timeframe::FiveYears.as_str(), "5Y");
+        assert_eq!(Timeframe::Max.as_str(), "MAX");
+    }
+
+    #[test]
+    fn test_timeframe_requires_full_output() {
+        assert!(!Timeframe::OneDay.requires_full_output());
+        assert!(!Timeframe::OneWeek.requires_full_output());
+        assert!(!Timeframe::OneMonth.requires_full_output());
+        assert!(!Timeframe::ThreeMonths.requires_full_output());
+        assert!(Timeframe::SixMonths.requires_full_output());
+        assert!(Timeframe::OneYear.requires_full_output());
+        assert!(Timeframe::FiveYears.requires_full_output());
+        assert!(Timeframe::Max.requires_full_output());
     }
 
     #[test]

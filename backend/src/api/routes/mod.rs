@@ -20,10 +20,12 @@ use crate::api::handlers::{
     remove_asset_from_watchlist, update_watchlist,
     // Alert handlers
     create_alert, delete_alert, get_alert, list_alerts, toggle_alert, update_alert,
+    // WebSocket handlers
+    ws_handler, WsHandlerState,
 };
 use crate::config::Config;
 use crate::middleware::{create_cors_layer, RateLimiter};
-use crate::services::{AlertService, AssetService, AuthService, WatchlistService};
+use crate::services::{AlertService, AssetService, AuthService, WatchlistService, WsService};
 use crate::utils::jwt::JwtManager;
 
 /// Application state shared across all handlers
@@ -34,6 +36,7 @@ pub struct AppState {
     pub watchlist_service: WatchlistService,
     pub alert_service: AlertService,
     pub jwt_manager: Arc<JwtManager>,
+    pub ws_service: Option<Arc<WsService>>,
 }
 
 /// Build the main application router
@@ -91,12 +94,27 @@ pub fn build_router(state: AppState, config: &Config) -> Router {
         .route("/:id/toggle", patch(toggle_alert))
         .with_state(state.alert_service.clone());
 
+    // Build WebSocket routes (if WsService is available)
+    let ws_routes = if let Some(ws_service) = &state.ws_service {
+        let ws_state = WsHandlerState {
+            ws_service: ws_service.clone(),
+            jwt_manager: state.jwt_manager.clone(),
+        };
+
+        Router::new()
+            .route("/ws", get(ws_handler))
+            .with_state(ws_state)
+    } else {
+        Router::new()
+    };
+
     // Combine all routes under /api/v1
     let api_routes = Router::new()
         .nest("/auth", auth_routes)
         .nest("/assets", asset_routes)
         .nest("/watchlists", watchlist_routes)
-        .nest("/alerts", alert_routes);
+        .nest("/alerts", alert_routes)
+        .merge(ws_routes);
 
     // Build health check route
     let health_route = Router::new()

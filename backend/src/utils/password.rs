@@ -1,12 +1,14 @@
 //! Password hashing and verification using Argon2
 //!
 //! This module provides secure password hashing using the Argon2id algorithm,
-//! which is the recommended algorithm for password hashing.
+//! which is the recommended algorithm for password hashing. It also provides
+//! utilities for generating secure random tokens.
 
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
+use sha2::{Digest, Sha256};
 
 use crate::utils::error::{AppError, Result};
 
@@ -125,6 +127,88 @@ pub fn validate_strength(password: &str, min_length: usize) -> Result<()> {
     Ok(())
 }
 
+/// Generate a secure random token for password reset
+///
+/// Generates a 32-byte (256-bit) cryptographically secure random token
+/// and returns it as a hex-encoded string.
+///
+/// # Returns
+///
+/// * `String` - A 64-character hex-encoded random token
+///
+/// # Example
+///
+/// ```ignore
+/// use my_invest_backend::utils::password;
+///
+/// let token = password::generate_reset_token();
+/// assert_eq!(token.len(), 64); // 32 bytes = 64 hex characters
+/// ```
+pub fn generate_reset_token() -> String {
+    use argon2::password_hash::rand_core::RngCore;
+
+    let mut bytes = [0u8; 32];
+    OsRng.fill_bytes(&mut bytes);
+    hex::encode(bytes)
+}
+
+/// Hash a reset token using SHA-256
+///
+/// We store hashed tokens in the database so that even if the database
+/// is compromised, the tokens cannot be used directly.
+///
+/// # Arguments
+///
+/// * `token` - The plain text token to hash
+///
+/// # Returns
+///
+/// * `String` - The SHA-256 hash of the token as a hex string
+///
+/// # Example
+///
+/// ```ignore
+/// use my_invest_backend::utils::password;
+///
+/// let token = "my_reset_token";
+/// let hash = password::hash_reset_token(token);
+/// assert_eq!(hash.len(), 64); // SHA-256 produces 32 bytes = 64 hex characters
+/// ```
+pub fn hash_reset_token(token: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(token.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+/// Verify a reset token against a stored hash
+///
+/// # Arguments
+///
+/// * `token` - The plain text token to verify
+/// * `stored_hash` - The stored SHA-256 hash
+///
+/// # Returns
+///
+/// * `bool` - True if the token matches the hash
+pub fn verify_reset_token(token: &str, stored_hash: &str) -> bool {
+    let computed_hash = hash_reset_token(token);
+    // Use constant-time comparison to prevent timing attacks
+    constant_time_eq(&computed_hash, stored_hash)
+}
+
+/// Constant-time string comparison to prevent timing attacks
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+
+    let mut result = 0u8;
+    for (x, y) in a.bytes().zip(b.bytes()) {
+        result |= x ^ y;
+    }
+    result == 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,5 +314,57 @@ mod tests {
         let password = "password123";
         let hash = hash(password).expect("Hashing should succeed");
         assert!(verify(password, &hash).expect("Verification should succeed"));
+    }
+
+    #[test]
+    fn test_generate_reset_token_length() {
+        let token = generate_reset_token();
+        // 32 bytes = 64 hex characters
+        assert_eq!(token.len(), 64);
+    }
+
+    #[test]
+    fn test_generate_reset_token_unique() {
+        let token1 = generate_reset_token();
+        let token2 = generate_reset_token();
+        assert_ne!(token1, token2);
+    }
+
+    #[test]
+    fn test_hash_reset_token() {
+        let token = "test_token";
+        let hash = hash_reset_token(token);
+        // SHA-256 produces 32 bytes = 64 hex characters
+        assert_eq!(hash.len(), 64);
+    }
+
+    #[test]
+    fn test_hash_reset_token_deterministic() {
+        let token = "test_token";
+        let hash1 = hash_reset_token(token);
+        let hash2 = hash_reset_token(token);
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_verify_reset_token_valid() {
+        let token = "test_token";
+        let hash = hash_reset_token(token);
+        assert!(verify_reset_token(token, &hash));
+    }
+
+    #[test]
+    fn test_verify_reset_token_invalid() {
+        let token = "test_token";
+        let hash = hash_reset_token(token);
+        assert!(!verify_reset_token("wrong_token", &hash));
+    }
+
+    #[test]
+    fn test_constant_time_eq() {
+        assert!(constant_time_eq("hello", "hello"));
+        assert!(!constant_time_eq("hello", "world"));
+        assert!(!constant_time_eq("hello", "hell"));
+        assert!(!constant_time_eq("", "a"));
     }
 }

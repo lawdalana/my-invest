@@ -8,6 +8,7 @@
 //! - Alert processor (alert_processor.rs)
 //! - Notification sender (notification_sender.rs)
 //! - Alpha Vantage API client (alpha_vantage_client.rs)
+//! - WebSocket service (ws_service.rs)
 
 pub mod alert_processor;
 pub mod alert_service;
@@ -16,6 +17,7 @@ pub mod asset_service;
 pub mod auth_service;
 pub mod notification_sender;
 pub mod watchlist_service;
+pub mod ws_service;
 
 // Re-export commonly used types
 pub use alert_processor::{AlertProcessor, AlertProcessorConfig};
@@ -28,3 +30,4 @@ pub use notification_sender::{
     QueuedNotificationSender,
 };
 pub use watchlist_service::WatchlistService;
+pub use ws_service::{WsConfig, WsService};

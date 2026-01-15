@@ -7,9 +7,12 @@ description = "Backend API for My-Invest Dashboard"
 
 [dependencies]
 # Web framework (Axum)
-axum = { version = "0.7", features = ["macros"] }
+axum = { version = "0.7", features = ["macros", "ws"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# WebSocket support
+tokio-tungstenite = "0.21"
 
 # Async runtime
 tokio = { version = "1.36", features = ["full"] }
@@ -48,6 +51,8 @@ validator = { version = "0.18", features = ["derive"] }
 # Security
 argon2 = "0.4"
 jsonwebtoken = "9.2"
+sha2 = "0.10"
+hex = "0.4"
 
 # Rate limiting
 governor = "0.6"
